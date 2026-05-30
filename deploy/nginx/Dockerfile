@@ -18,7 +18,10 @@ RUN cd save-sync && npm run build
 
 FROM nginx:1.27-alpine
 
-RUN apk add --no-cache nodejs gettext
+RUN apk add --no-cache nodejs gettext && \
+    mkdir -p /tmp/nginx && \
+    adduser -D -u 1000 renplay && \
+    chmod 777 /tmp/nginx
 
 EXPOSE 8080
 

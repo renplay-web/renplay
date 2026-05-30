@@ -1,9 +1,19 @@
 worker_processes auto;
+user root root;
+error_log /dev/stderr;
+pid /tmp/nginx/nginx.pid;
+
 events {
   worker_connections 1024;
 }
 
 http {
+  client_body_temp_path /tmp/nginx/client_body;
+  proxy_temp_path /tmp/nginx/proxy;
+  fastcgi_temp_path /tmp/nginx/fastcgi;
+  uwsgi_temp_path /tmp/nginx/uwsgi;
+  scgi_temp_path /tmp/nginx/scgi;
+
   include /etc/nginx/mime.types;
   default_type application/octet-stream;
 
