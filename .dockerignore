@@ -1,0 +1,11 @@
+data/
+saves/
+games/
+**/node_modules/
+**/dist/
+.git/
+.gitignore
+*.md
+docker-compose.yml
+Makefile
+.env

@@ -1,4 +1,5 @@
 data/
+games/
 saves/
 **/node_modules/
 **/dist/

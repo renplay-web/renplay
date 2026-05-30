@@ -1,0 +1,13 @@
+services:
+  renplay:
+    build:
+      context: .
+      dockerfile: deploy/nginx/Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      GAMES_DIR: /games
+      DATA_DIR: /data
+    volumes:
+      - ./games:/games
+      - ./data:/data
