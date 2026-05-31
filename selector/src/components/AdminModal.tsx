@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from 'react'
 import type { Game } from '../types'
 import { useAdmin, type EditFormData } from '../hooks/useAdmin'
 
+const PRESPLASH_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'avif']
+
 interface Props {
   open: boolean
   onClose: () => void
@@ -20,12 +22,19 @@ export default function AdminModal({ open, onClose, games, onChanged }: Props) {
   const [orderedGames, setOrderedGames] = useState<Game[]>([])
   const [dragIdx, setDragIdx] = useState<number | null>(null)
   const dragOverIdx = useRef<number | null>(null)
+  const [previewExtIdx, setPreviewExtIdx] = useState(0)
+  const [previewFailed, setPreviewFailed] = useState(false)
 
   useEffect(() => {
     if (open) {
       setOrderedGames(games)
     }
   }, [games, open])
+
+  useEffect(() => {
+    setPreviewExtIdx(0)
+    setPreviewFailed(false)
+  }, [editSlug])
 
   useEffect(() => {
     if (!open) {
@@ -35,6 +44,8 @@ export default function AdminModal({ open, onClose, games, onChanged }: Props) {
       setScanResult(null)
       setDragIdx(null)
       dragOverIdx.current = null
+      setPreviewExtIdx(0)
+      setPreviewFailed(false)
       clearError()
     }
   }, [open, clearError])
@@ -122,10 +133,6 @@ export default function AdminModal({ open, onClose, games, onChanged }: Props) {
     if (ok) onChanged()
   }
 
-  const presplashUrl = (slug: string): string => {
-    return `/play/${slug}/web-presplash.jpg`
-  }
-
   if (!open) return null
 
   return (
@@ -196,14 +203,23 @@ export default function AdminModal({ open, onClose, games, onChanged }: Props) {
                 <label className="block text-xs font-medium text-gray-500 mb-2">Thumbnail</label>
                 <div className="flex items-center gap-3">
                   <div className="w-20 h-12 rounded-lg overflow-hidden bg-gray-900 flex-shrink-0 flex items-center justify-center">
-                    <img
-                      src={editingGame?.thumbnail ? `/api/thumbnails/${editingGame.thumbnail}` : presplashUrl(editSlug)}
-                      alt=""
-                      className="w-full h-full object-cover"
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).style.display = 'none'
-                      }}
-                    />
+                    {previewFailed ? (
+                      <span className="text-lg">🎮</span>
+                    ) : (
+                      <img
+                        key={editingGame?.thumbnail ? 'custom' : `presplash-${previewExtIdx}`}
+                        src={editingGame?.thumbnail ? `/api/thumbnails/${editingGame.thumbnail}` : `/play/${editSlug}/web-presplash.${PRESPLASH_EXTS[previewExtIdx]}`}
+                        alt=""
+                        className="w-full h-full object-cover"
+                        onError={() => {
+                          if (!editingGame?.thumbnail && previewExtIdx < PRESPLASH_EXTS.length - 1) {
+                            setPreviewExtIdx(i => i + 1)
+                          } else {
+                            setPreviewFailed(true)
+                          }
+                        }}
+                      />
+                    )}
                   </div>
                   <input
                     ref={fileInputRef}

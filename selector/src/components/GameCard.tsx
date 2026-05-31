@@ -1,18 +1,28 @@
+import { useState } from 'react'
 import type { Game } from '../types'
+
+const PRESPLASH_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'avif']
 
 interface Props {
   game: Game
 }
 
-function thumbnailUrl(game: Game): string {
-  if (game.thumbnail) {
-    return `/api/thumbnails/${game.thumbnail}`
-  }
-  return `/play/${game.slug}/web-presplash.jpg`
-}
-
 export default function GameCard({ game }: Props) {
   const playUrl = `/play/${game.slug}`
+  const [extIdx, setExtIdx] = useState(0)
+  const [imgFailed, setImgFailed] = useState(false)
+
+  const src = game.thumbnail
+    ? `/api/thumbnails/${game.thumbnail}`
+    : `/play/${game.slug}/web-presplash.${PRESPLASH_EXTS[extIdx]}`
+
+  const handleError = () => {
+    if (!game.thumbnail && extIdx < PRESPLASH_EXTS.length - 1) {
+      setExtIdx(i => i + 1)
+    } else {
+      setImgFailed(true)
+    }
+  }
 
   return (
     <a
@@ -20,20 +30,20 @@ export default function GameCard({ game }: Props) {
       className="group relative flex flex-col overflow-hidden rounded-xl bg-gray-800/60 backdrop-blur-sm border border-gray-700/50 transition-all duration-300 hover:scale-[1.03] hover:shadow-xl hover:shadow-indigo-500/10 hover:border-indigo-500/40"
     >
       <div className="aspect-[16/9] overflow-hidden bg-gray-900">
-        <img
-          src={thumbnailUrl(game)}
-          alt={game.title}
-          className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
-          loading="lazy"
-          onError={(e) => {
-            (e.target as HTMLImageElement).style.display = 'none'
-            const parent = (e.target as HTMLImageElement).parentElement!
-            const fallback = document.createElement('div')
-            fallback.className = 'flex h-full items-center justify-center text-5xl text-gray-600'
-            fallback.textContent = '🎮'
-            parent.appendChild(fallback)
-          }}
-        />
+        {imgFailed ? (
+          <div className="flex h-full items-center justify-center text-5xl text-gray-600">
+            🎮
+          </div>
+        ) : (
+          <img
+            key={game.thumbnail ? 'custom' : extIdx}
+            src={src}
+            alt={game.title}
+            className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
+            loading="lazy"
+            onError={handleError}
+          />
+        )}
       </div>
 
       <div className="flex flex-1 flex-col gap-2 p-4">
