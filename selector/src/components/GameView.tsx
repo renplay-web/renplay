@@ -51,6 +51,7 @@ export default function GameView() {
           src={`/play/${encodeURIComponent(slug)}/`}
           className="h-full w-full border-0"
           title={slug}
+          allow="autoplay"
           onLoad={() => setLoaded(true)}
         />
       </div>

@@ -24,7 +24,7 @@
       var names = FS.readdir(dir);
       for (var i = 0; i < names.length; i++) {
         var n = names[i];
-        if (n === '.' || n === '..') continue;
+        if (n === '.' || n === '..' || n === 'sync') continue;
         var p = dir + '/' + n;
         var st = FS.stat(p);
         if (FS.isDir(st.mode)) {
