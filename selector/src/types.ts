@@ -1,9 +1,8 @@
 export interface Game {
   slug: string
   title: string
-  author?: string
-  description?: string
   tags?: string[]
+  thumbnail?: string
 }
 
 export interface GamesResponse {

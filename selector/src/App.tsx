@@ -19,7 +19,7 @@ export default function App() {
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim()
     return games.filter((g) => {
-      if (q && !g.title.toLowerCase().includes(q) && !g.author?.toLowerCase().includes(q)) return false
+      if (q && !g.title.toLowerCase().includes(q)) return false
       if (selectedTag && !g.tags?.includes(selectedTag)) return false
       return true
     })
@@ -106,7 +106,7 @@ export default function App() {
                   onClick={() => setAdminOpen(true)}
                   className="mt-4 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-indigo-500 transition-colors"
                 >
-                  Add your first game
+                  Manage games
                 </button>
               )}
             </div>

@@ -24,58 +24,12 @@ export function createGamesRouter(db: Database): Router {
     res.json({ game: toGame(row) })
   })
 
-  router.post('/', async (req, res) => {
-    const { slug, title, author, description, tags } = req.body
-
-    if (!slug || !title) {
-      res.status(400).json({ error: 'slug and title are required' })
-      return
-    }
-
-    if (title.length > 200) {
-      res.status(400).json({ error: 'title too long (max 200 characters)' })
-      return
-    }
-    if (author && author.length > 200) {
-      res.status(400).json({ error: 'author too long (max 200 characters)' })
-      return
-    }
-    if (description && description.length > 2000) {
-      res.status(400).json({ error: 'description too long (max 2000 characters)' })
-      return
-    }
-
-    const safeSlug = slug.replace(/[^a-zA-Z0-9._-]/g, '_').toLowerCase()
-    if (!safeSlug) {
-      res.status(400).json({ error: 'slug must contain at least one valid character' })
-      return
-    }
-
-    if (db.getGame(safeSlug)) {
-      res.status(409).json({ error: `Game "${safeSlug}" already exists` })
-      return
-    }
-
-    db.createGame({
-      slug: safeSlug,
-      title,
-      author: author || '',
-      description: description || '',
-      tags: JSON.stringify(Array.isArray(tags) ? tags : []),
-    })
-    await db.save()
-
-    res.status(201).json({ ok: true, slug: safeSlug })
-  })
-
   router.put('/:slug', async (req, res) => {
     const slug = param(req.params.slug)
-    const { title, author, description, tags } = req.body
+    const { title, tags } = req.body
 
     const updates: Record<string, unknown> = {}
     if (title !== undefined) updates.title = title
-    if (author !== undefined) updates.author = author
-    if (description !== undefined) updates.description = description
     if (tags !== undefined) updates.tags = JSON.stringify(Array.isArray(tags) ? tags : [])
 
     if (Object.keys(updates).length === 0) {
@@ -102,7 +56,6 @@ export function createGamesRouter(db: Database): Router {
       return
     }
     await db.save()
-
     res.json({ ok: true })
   })
 
@@ -144,18 +97,16 @@ function toGame(row: GameRow) {
   return {
     slug: row.slug,
     title: row.title,
-    author: row.author || undefined,
-    description: row.description || undefined,
     tags: JSON.parse(row.tags || '[]'),
+    thumbnail: row.thumbnail || undefined,
   }
 }
 
 interface GameRow {
   slug: string
   title: string
-  author: string
-  description: string
   tags: string
+  thumbnail: string
   sort_order: number
   created_at: string
   updated_at: string

@@ -4,6 +4,13 @@ interface Props {
   game: Game
 }
 
+function thumbnailUrl(game: Game): string {
+  if (game.thumbnail) {
+    return `/api/thumbnails/${game.thumbnail}`
+  }
+  return `/play/${game.slug}/web-presplash.jpg`
+}
+
 export default function GameCard({ game }: Props) {
   const playUrl = `/play/${game.slug}`
 
@@ -14,7 +21,7 @@ export default function GameCard({ game }: Props) {
     >
       <div className="aspect-[16/9] overflow-hidden bg-gray-900">
         <img
-          src={`/play/${game.slug}/thumbnail.jpg`}
+          src={thumbnailUrl(game)}
           alt={game.title}
           className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
           loading="lazy"
@@ -33,16 +40,6 @@ export default function GameCard({ game }: Props) {
         <h3 className="text-lg font-semibold leading-tight text-white group-hover:text-indigo-300 transition-colors">
           {game.title}
         </h3>
-
-        {game.author && (
-          <p className="text-sm text-gray-400">{game.author}</p>
-        )}
-
-        {game.description && (
-          <p className="text-sm text-gray-500 leading-relaxed line-clamp-2">
-            {game.description}
-          </p>
-        )}
 
         {game.tags && game.tags.length > 0 && (
           <div className="mt-auto flex flex-wrap gap-1.5 pt-2">

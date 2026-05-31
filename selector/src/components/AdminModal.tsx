@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import type { Game } from '../types'
-import { useAdmin, type GameFormData } from '../hooks/useAdmin'
+import { useAdmin, type EditFormData } from '../hooks/useAdmin'
 
 interface Props {
   open: boolean
@@ -10,44 +10,56 @@ interface Props {
 }
 
 export default function AdminModal({ open, onClose, games, onChanged }: Props) {
-  const { create, update, remove, saving, error, clearError, emptyForm, gameToForm } = useAdmin()
-  const [editing, setEditing] = useState<GameFormData | null>(null)
-  const [adding, setAdding] = useState(false)
-  const [form, setForm] = useState<GameFormData>(emptyForm)
+  const { update, remove, reorder, scan, uploadThumbnail, removeThumbnail, saving, error, clearError, gameToForm } = useAdmin()
+  const [editing, setEditing] = useState<EditFormData | null>(null)
+  const [editSlug, setEditSlug] = useState<string | null>(null)
+  const [form, setForm] = useState<EditFormData>({ title: '', tags: '' })
+  const [scanResult, setScanResult] = useState<string | null>(null)
+  const [uploading, setUploading] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [orderedGames, setOrderedGames] = useState<Game[]>([])
+  const [dragIdx, setDragIdx] = useState<number | null>(null)
+  const dragOverIdx = useRef<number | null>(null)
+
+  useEffect(() => {
+    if (open) {
+      setOrderedGames(games)
+    }
+  }, [games, open])
 
   useEffect(() => {
     if (!open) {
       setEditing(null)
-      setAdding(false)
-      setForm(emptyForm)
+      setEditSlug(null)
+      setForm({ title: '', tags: '' })
+      setScanResult(null)
+      setDragIdx(null)
+      dragOverIdx.current = null
       clearError()
     }
   }, [open, clearError])
 
-  const startAdd = () => {
-    setAdding(true)
-    setForm(emptyForm)
-    clearError()
-  }
+  const editingGame = editSlug ? games.find(g => g.slug === editSlug) ?? null : null
 
   const startEdit = (g: Game) => {
+    setEditSlug(g.slug)
     setEditing(gameToForm(g))
     setForm(gameToForm(g))
     clearError()
   }
 
+  const cancelEdit = () => {
+    setEditing(null)
+    setEditSlug(null)
+    setForm({ title: '', tags: '' })
+    clearError()
+  }
+
   const handleSave = async () => {
-    if (!form.title.trim() || !form.slug.trim()) return
-    let ok: boolean
-    if (editing) {
-      ok = await update(editing.slug, form)
-    } else {
-      ok = await create(form)
-    }
+    if (!form.title.trim() || !editSlug) return
+    const ok = await update(editSlug, form)
     if (ok) {
-      setEditing(null)
-      setAdding(false)
-      setForm(emptyForm)
+      cancelEdit()
       onChanged()
     }
   }
@@ -58,9 +70,63 @@ export default function AdminModal({ open, onClose, games, onChanged }: Props) {
     if (ok) onChanged()
   }
 
-  if (!open) return null
+  const handleScan = async () => {
+    setScanResult(null)
+    const result = await scan()
+    if (result) {
+      const n = result.created.length
+      setScanResult(n > 0 ? `Found ${n} new game(s): ${result.created.join(', ')}` : 'No new games found.')
+      if (n > 0) onChanged()
+    }
+  }
 
-  const showForm = editing || adding
+  const handleUploadThumbnail = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !editSlug) return
+    setUploading(true)
+    const ok = await uploadThumbnail(editSlug, file)
+    setUploading(false)
+    if (ok) onChanged()
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  const handleRemoveThumbnail = async () => {
+    if (!editSlug) return
+    const ok = await removeThumbnail(editSlug)
+    if (ok) onChanged()
+  }
+
+  // drag-and-drop
+  const handleDragStart = (idx: number) => {
+    setDragIdx(idx)
+  }
+
+  const handleDragOver = (e: React.DragEvent, idx: number) => {
+    e.preventDefault()
+    dragOverIdx.current = idx
+  }
+
+  const handleDragEnd = async () => {
+    const from = dragIdx
+    const to = dragOverIdx.current
+    setDragIdx(null)
+    dragOverIdx.current = null
+    if (from === null || to === null || from === to) return
+
+    const newOrder = [...orderedGames]
+    const [moved] = newOrder.splice(from, 1)
+    newOrder.splice(to, 0, moved)
+    setOrderedGames(newOrder)
+
+    const ok = await reorder(newOrder.map(g => g.slug))
+    if (ok) onChanged()
+  }
+
+  const presplashUrl = (slug: string): string => {
+    return `/play/${slug}/web-presplash.jpg`
+  }
+
+  if (!open) return null
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 pt-12 backdrop-blur-sm">
@@ -80,74 +146,44 @@ export default function AdminModal({ open, onClose, games, onChanged }: Props) {
           </div>
         )}
 
-        {!showForm && (
-          <div className="mb-6">
-            <button
-              onClick={startAdd}
-              className="flex items-center gap-2 rounded-xl border border-dashed border-gray-600 px-4 py-3 text-sm text-gray-400 hover:border-indigo-500/50 hover:text-indigo-300 transition-all w-full justify-center"
-            >
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-              </svg>
-              Add Game
-            </button>
+        {scanResult && (
+          <div className="mb-4 rounded-lg border border-green-800/50 bg-green-900/20 px-4 py-2 text-sm text-green-400">
+            {scanResult}
           </div>
         )}
 
-        {showForm && (
+        <div className="mb-6">
+          <button
+            onClick={handleScan}
+            disabled={saving}
+            className="flex items-center gap-2 rounded-xl border border-dashed border-gray-600 px-4 py-3 text-sm text-gray-400 hover:border-indigo-500/50 hover:text-indigo-300 transition-all w-full justify-center disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            {saving ? 'Scanning...' : 'Scan for new games'}
+          </button>
+        </div>
+
+        {editing && editSlug && (
           <div className="mb-6 rounded-xl border border-gray-700/50 bg-gray-800/60 p-4 space-y-3">
             <h3 className="text-sm font-semibold text-gray-300">
-              {editing ? `Edit: ${editing.title}` : 'New Game'}
+              Edit: {editing.title}
             </h3>
 
             <div className="grid grid-cols-2 gap-3">
-              <div className="col-span-2 sm:col-span-1">
-                <label className="block text-xs font-medium text-gray-400 mb-1">
-                  Slug <span className="text-indigo-400">*</span>
-                </label>
-                <input
-                  type="text"
-                  value={form.slug}
-                  onChange={(e) => setForm({ ...form, slug: e.target.value })}
-                  placeholder="my-game"
-                  disabled={!!editing}
-                  className="w-full rounded-lg border border-gray-700 bg-gray-900/60 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-indigo-500/50 focus:outline-none disabled:opacity-40"
-                />
-              </div>
-              <div className="col-span-2 sm:col-span-1">
-                <label className="block text-xs font-medium text-gray-400 mb-1">
-                  Title <span className="text-indigo-400">*</span>
-                </label>
+              <div className="col-span-2">
+                <label className="block text-xs font-medium text-gray-400 mb-1">Title</label>
                 <input
                   type="text"
                   value={form.title}
                   onChange={(e) => setForm({ ...form, title: e.target.value })}
-                  placeholder="My Game"
+                  placeholder="Game Title"
                   className="w-full rounded-lg border border-gray-700 bg-gray-900/60 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-indigo-500/50 focus:outline-none"
                 />
               </div>
               <div className="col-span-2">
-                <label className="block text-xs font-medium text-gray-500 mb-1">Author (optional)</label>
-                <input
-                  type="text"
-                  value={form.author}
-                  onChange={(e) => setForm({ ...form, author: e.target.value })}
-                  placeholder="Author Name"
-                  className="w-full rounded-lg border border-gray-700 bg-gray-900/60 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-indigo-500/50 focus:outline-none"
-                />
-              </div>
-              <div className="col-span-2">
-                <label className="block text-xs font-medium text-gray-500 mb-1">Description (optional)</label>
-                <textarea
-                  value={form.description}
-                  onChange={(e) => setForm({ ...form, description: e.target.value })}
-                  placeholder="A short description..."
-                  rows={2}
-                  className="w-full rounded-lg border border-gray-700 bg-gray-900/60 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-indigo-500/50 focus:outline-none resize-none"
-                />
-              </div>
-              <div className="col-span-2">
-                <label className="block text-xs font-medium text-gray-500 mb-1">Tags (optional, comma-separated)</label>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Tags (comma-separated)</label>
                 <input
                   type="text"
                   value={form.tags}
@@ -156,18 +192,55 @@ export default function AdminModal({ open, onClose, games, onChanged }: Props) {
                   className="w-full rounded-lg border border-gray-700 bg-gray-900/60 px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-indigo-500/50 focus:outline-none"
                 />
               </div>
+              <div className="col-span-2">
+                <label className="block text-xs font-medium text-gray-500 mb-2">Thumbnail</label>
+                <div className="flex items-center gap-3">
+                  <div className="w-20 h-12 rounded-lg overflow-hidden bg-gray-900 flex-shrink-0 flex items-center justify-center">
+                    <img
+                      src={editingGame?.thumbnail ? `/api/thumbnails/${editingGame.thumbnail}` : presplashUrl(editSlug)}
+                      alt=""
+                      className="w-full h-full object-cover"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).style.display = 'none'
+                      }}
+                    />
+                  </div>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/gif,image/avif"
+                    onChange={handleUploadThumbnail}
+                    className="hidden"
+                  />
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={uploading}
+                    className="rounded-lg border border-gray-700 px-3 py-1.5 text-xs text-gray-400 hover:bg-gray-700 hover:text-white transition-colors disabled:opacity-40"
+                  >
+                    {uploading ? 'Uploading...' : 'Upload'}
+                  </button>
+                  {editingGame?.thumbnail && (
+                    <button
+                      onClick={handleRemoveThumbnail}
+                      className="rounded-lg border border-red-900/50 px-3 py-1.5 text-xs text-red-400 hover:bg-red-900/30 hover:text-red-300 transition-colors"
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
 
             <div className="flex items-center gap-3 pt-1">
               <button
                 onClick={handleSave}
-                disabled={saving || !form.title.trim() || !form.slug.trim()}
+                disabled={saving || !form.title.trim()}
                 className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
-                {saving ? 'Saving...' : editing ? 'Update' : 'Create'}
+                {saving ? 'Saving...' : 'Update'}
               </button>
               <button
-                onClick={() => { setEditing(null); setAdding(false); setForm(emptyForm); clearError() }}
+                onClick={cancelEdit}
                 className="rounded-lg border border-gray-700 px-4 py-2 text-sm text-gray-400 hover:bg-gray-800 hover:text-white transition-colors"
               >
                 Cancel
@@ -177,25 +250,39 @@ export default function AdminModal({ open, onClose, games, onChanged }: Props) {
         )}
 
         <div className="space-y-2">
-          {games.length === 0 ? (
-            <p className="py-8 text-center text-sm text-gray-500">No games yet. Add one above.</p>
+          {orderedGames.length === 0 ? (
+            <p className="py-8 text-center text-sm text-gray-500">
+              No games found. Click "Scan for new games" after placing game files in the games directory.
+            </p>
           ) : (
-            games.map((g) => (
+            orderedGames.map((g, idx) => (
               <div
                 key={g.slug}
-                className="flex items-center gap-3 rounded-xl border border-gray-800 bg-gray-800/30 px-4 py-3"
+                draggable
+                onDragStart={() => handleDragStart(idx)}
+                onDragOver={(e) => handleDragOver(e, idx)}
+                onDragEnd={handleDragEnd}
+                className={`flex items-center gap-3 rounded-xl border px-4 py-3 transition-colors ${
+                  dragIdx === idx
+                    ? 'border-indigo-500/50 bg-indigo-900/20 opacity-50'
+                    : 'border-gray-800 bg-gray-800/30'
+                } ${dragOverIdx.current === idx && dragIdx !== idx ? 'border-t-indigo-400' : ''}`}
               >
-                <div className="flex flex-col gap-0.5 flex-shrink-0">
+                <div className="flex flex-col gap-0.5 flex-shrink-0 cursor-grab active:cursor-grabbing">
                   <button
                     onClick={async () => {
-                      await fetch(`/api/games/${encodeURIComponent(g.slug)}/move`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ direction: 'up' }),
-                      })
-                      onChanged()
+                      if (idx === 0) return
+                      const newOrder = [...orderedGames]
+                      const [moved] = newOrder.splice(idx, 1)
+                      newOrder.splice(idx - 1, 0, moved)
+                      setOrderedGames(newOrder)
+                      const ok = await reorder(newOrder.map(g => g.slug))
+                      if (ok) onChanged()
                     }}
-                    className="rounded p-0.5 text-gray-500 hover:text-indigo-400 transition-colors"
+                    disabled={idx === 0}
+                    className={`rounded p-0.5 transition-colors ${
+                      idx === 0 ? 'text-gray-700 cursor-not-allowed' : 'text-gray-500 hover:text-indigo-400'
+                    }`}
                     title="Move up"
                   >
                     <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -204,14 +291,18 @@ export default function AdminModal({ open, onClose, games, onChanged }: Props) {
                   </button>
                   <button
                     onClick={async () => {
-                      await fetch(`/api/games/${encodeURIComponent(g.slug)}/move`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ direction: 'down' }),
-                      })
-                      onChanged()
+                      if (idx === orderedGames.length - 1) return
+                      const newOrder = [...orderedGames]
+                      const [moved] = newOrder.splice(idx, 1)
+                      newOrder.splice(idx + 1, 0, moved)
+                      setOrderedGames(newOrder)
+                      const ok = await reorder(newOrder.map(g => g.slug))
+                      if (ok) onChanged()
                     }}
-                    className="rounded p-0.5 text-gray-500 hover:text-indigo-400 transition-colors"
+                    disabled={idx === orderedGames.length - 1}
+                    className={`rounded p-0.5 transition-colors ${
+                      idx === orderedGames.length - 1 ? 'text-gray-700 cursor-not-allowed' : 'text-gray-500 hover:text-indigo-400'
+                    }`}
                     title="Move down"
                   >
                     <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>

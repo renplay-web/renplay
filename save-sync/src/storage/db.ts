@@ -1,13 +1,12 @@
-import { readFile, writeFile, mkdir } from 'node:fs/promises'
+import { readFile, writeFile, mkdir, readdir, stat } from 'node:fs/promises'
 import { join, dirname } from 'node:path'
 import initSqlJs, { type Database as SqlJsDatabase } from 'sql.js'
 
 export interface GameRow {
   slug: string
   title: string
-  author: string
-  description: string
   tags: string
+  thumbnail: string
   sort_order: number
   created_at: string
   updated_at: string
@@ -37,18 +36,32 @@ export class Database {
   }
 
   private migrate(): void {
-    this.db.run(`
-      CREATE TABLE IF NOT EXISTS games (
-        slug        TEXT PRIMARY KEY,
-        title       TEXT NOT NULL,
-        author      TEXT DEFAULT '',
-        description TEXT DEFAULT '',
-        tags        TEXT DEFAULT '[]',
-        sort_order  INTEGER DEFAULT 0,
-        created_at  TEXT DEFAULT (datetime('now')),
-        updated_at  TEXT DEFAULT (datetime('now'))
-      )
-    `)
+    const raw = this.db.exec("PRAGMA user_version")[0]?.values[0]?.[0]
+    const version = typeof raw === 'number' ? raw : 0
+
+    if (version < 1) {
+      this.db.run(`
+        CREATE TABLE IF NOT EXISTS games (
+          slug        TEXT PRIMARY KEY,
+          title       TEXT NOT NULL,
+          author      TEXT DEFAULT '',
+          description TEXT DEFAULT '',
+          tags        TEXT DEFAULT '[]',
+          thumbnail   TEXT DEFAULT '',
+          sort_order  INTEGER DEFAULT 0,
+          created_at  TEXT DEFAULT (datetime('now')),
+          updated_at  TEXT DEFAULT (datetime('now'))
+        )
+      `)
+      this.db.run('PRAGMA user_version = 1')
+    }
+
+    if (version < 2) {
+      try { this.db.run('ALTER TABLE games DROP COLUMN author') } catch {}
+      try { this.db.run('ALTER TABLE games DROP COLUMN description') } catch {}
+      try { this.db.run("ALTER TABLE games ADD COLUMN thumbnail TEXT DEFAULT ''") } catch {}
+      this.db.run('PRAGMA user_version = 2')
+    }
 
     this.db.run(`
       CREATE TABLE IF NOT EXISTS meta (
@@ -85,9 +98,9 @@ export class Database {
     const sortOrder = (result[0]?.values[0]?.[0] ?? 0) as number
 
     this.db.run(
-      `INSERT INTO games (slug, title, author, description, tags, sort_order)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [row.slug, row.title, row.author, row.description, row.tags, sortOrder],
+      `INSERT INTO games (slug, title, tags, thumbnail, sort_order)
+       VALUES (?, ?, ?, ?, ?)`,
+      [row.slug, row.title, row.tags, row.thumbnail, sortOrder],
     )
   }
 
@@ -97,12 +110,11 @@ export class Database {
 
     const merged = { ...existing, ...updates, updated_at: new Date().toISOString() }
     this.db.run(
-      `UPDATE games SET title=?, author=?, description=?, tags=?, sort_order=?, updated_at=? WHERE slug=?`,
+      `UPDATE games SET title=?, tags=?, thumbnail=?, sort_order=?, updated_at=? WHERE slug=?`,
       [
         merged.title,
-        merged.author,
-        merged.description,
         merged.tags,
+        merged.thumbnail,
         merged.sort_order,
         merged.updated_at,
         slug,
@@ -116,6 +128,12 @@ export class Database {
     if (!existing) return false
     this.db.run('DELETE FROM games WHERE slug = ?', [slug])
     return true
+  }
+
+  reorderGames(slugs: string[]): void {
+    slugs.forEach((slug, idx) => {
+      this.db.run('UPDATE games SET sort_order = ?, updated_at = datetime(\'now\') WHERE slug = ?', [idx, slug])
+    })
   }
 
   getGameAbove(sortOrder: number): GameRow | null {
@@ -139,6 +157,46 @@ export class Database {
       return row
     }
     stmt.free()
+    return null
+  }
+
+  async scanLibrary(gamesDir: string): Promise<{ created: string[] }> {
+    const created: string[] = []
+
+    let entries: string[]
+    try {
+      entries = await readdir(gamesDir)
+    } catch {
+      return { created }
+    }
+
+    for (const entry of entries) {
+      const fullPath = join(gamesDir, entry)
+
+      let stats
+      try { stats = await stat(fullPath) } catch { continue }
+      if (!stats.isDirectory()) continue
+
+      const slug = entry.replace(/[^a-zA-Z0-9._-]/g, '_').toLowerCase()
+      if (!slug) continue
+
+      if (this.getGame(slug)) continue
+
+      const title = await this.detectTitle(fullPath) || entry
+      this.createGame({ slug, title, tags: '[]', thumbnail: '' })
+      created.push(slug)
+    }
+
+    return { created }
+  }
+
+  private async detectTitle(gameDir: string): Promise<string | null> {
+    try {
+      const indexHtml = join(gameDir, 'index.html')
+      const html = await readFile(indexHtml, 'utf-8')
+      const match = html.match(/<title>([^<]*)<\/title>/i)
+      if (match) return match[1].trim()
+    } catch {}
     return null
   }
 
