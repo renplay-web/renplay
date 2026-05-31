@@ -116,7 +116,6 @@
     var FS = getFS();
     if (FS) {
       try {
-        if (!FS.analyzePath(LS_KEY).exists) FS.mkdir(LS_KEY);
         for (var i = 0; i < entries.length; i++) {
           var name = entries[i].name;
           var data = entries[i].data;
@@ -217,7 +216,8 @@
   });
 
   var fsCheckTimer = setInterval(function () {
-    if (getFS()) {
+    var FS = getFS();
+    if (FS && FS.analyzePath(LS_KEY).exists) {
       clearInterval(fsCheckTimer);
       console.log('[renplay] FS ready, downloading saves');
       downloadSaves();
