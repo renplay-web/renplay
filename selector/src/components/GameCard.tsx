@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import type { Game } from '../types'
-
-const PRESPLASH_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'avif']
+import { PRESPLASH_EXTS } from '../constants'
 
 interface Props {
   game: Game
@@ -27,7 +26,7 @@ export default function GameCard({ game }: Props) {
   return (
     <a
       href={playUrl}
-      className="group relative flex flex-col overflow-hidden rounded-xl bg-gray-800/60 backdrop-blur-sm border border-gray-700/50 transition-all duration-300 hover:scale-[1.03] hover:shadow-xl hover:shadow-indigo-500/10 hover:border-indigo-500/40"
+      className="group relative flex flex-col overflow-hidden rounded-xl bg-gray-800/60 backdrop-blur-sm border border-gray-700/50 transition-all duration-300 hover:scale-[1.03] hover:shadow-xl hover:shadow-indigo-500/10 hover:border-indigo-500/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-950"
     >
       <div className="aspect-[16/9] overflow-hidden bg-gray-900">
         {imgFailed ? (

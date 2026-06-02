@@ -15,7 +15,9 @@ export default function SearchBar({ value, onChange }: Props) {
       >
         <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
       </svg>
+      <label htmlFor="game-search" className="sr-only">Search games</label>
       <input
+        id="game-search"
         type="text"
         placeholder="Search games..."
         value={value}

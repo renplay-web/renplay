@@ -1,8 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import type { Game } from '../types'
 import { useAdmin, type EditFormData } from '../hooks/useAdmin'
-
-const PRESPLASH_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'avif']
+import { PRESPLASH_EXTS } from '../constants'
 
 interface Props {
   open: boolean
@@ -140,7 +139,7 @@ export default function AdminModal({ open, onClose, games, onChanged }: Props) {
       <div className="w-full max-w-2xl rounded-2xl border border-gray-700/50 bg-gray-900 p-6 shadow-2xl mx-4 mb-12">
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-xl font-bold text-white">Manage Games</h2>
-          <button onClick={onClose} className="rounded-lg p-2 text-gray-400 hover:bg-gray-800 hover:text-white transition-colors">
+          <button onClick={onClose} className="rounded-lg p-2 text-gray-400 hover:bg-gray-800 hover:text-white transition-colors" aria-label="Close">
             <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
             </svg>
@@ -300,6 +299,7 @@ export default function AdminModal({ open, onClose, games, onChanged }: Props) {
                       idx === 0 ? 'text-gray-700 cursor-not-allowed' : 'text-gray-500 hover:text-indigo-400'
                     }`}
                     title="Move up"
+                    aria-label="Move up"
                   >
                     <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
@@ -320,6 +320,7 @@ export default function AdminModal({ open, onClose, games, onChanged }: Props) {
                       idx === orderedGames.length - 1 ? 'text-gray-700 cursor-not-allowed' : 'text-gray-500 hover:text-indigo-400'
                     }`}
                     title="Move down"
+                    aria-label="Move down"
                   >
                     <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
@@ -337,6 +338,7 @@ export default function AdminModal({ open, onClose, games, onChanged }: Props) {
                   onClick={() => startEdit(g)}
                   className="rounded-lg p-2 text-gray-500 hover:bg-gray-700 hover:text-indigo-400 transition-colors"
                   title="Edit"
+                  aria-label="Edit"
                 >
                   <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
@@ -346,6 +348,7 @@ export default function AdminModal({ open, onClose, games, onChanged }: Props) {
                   onClick={() => handleDelete(g.slug)}
                   className="rounded-lg p-2 text-gray-500 hover:bg-gray-700 hover:text-red-400 transition-colors"
                   title="Delete"
+                  aria-label="Delete"
                 >
                   <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />

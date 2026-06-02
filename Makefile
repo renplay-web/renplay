@@ -15,4 +15,4 @@ dev:
 	docker compose up --build
 
 clean:
-	rm -rf selector/dist save-sync/dist selector/node_modules save-sync/node_modules
+	rm -rf selector/dist selector/node_modules

@@ -1,6 +1,6 @@
-FROM node:23-alpine AS builder
+FROM node:22-alpine AS builder
 
-RUN apk add --no-cache python3 make g++
+RUN apk add --no-cache make g++
 
 WORKDIR /build
 
@@ -10,11 +10,11 @@ RUN cd selector && npm ci
 COPY selector/ /build/selector/
 RUN cd selector && npm run build
 
-COPY save-sync/package.json save-sync/package-lock.json* /build/save-sync/
-RUN cd save-sync && npm ci
+COPY server/package.json server/package-lock.json* /build/server/
+RUN cd server && npm ci
 
-COPY save-sync/ /build/save-sync/
-RUN cd save-sync && npm run build
+COPY server/ /build/server/
+RUN cd server && npm run build
 
 FROM nginx:1.27-alpine
 
@@ -26,8 +26,8 @@ RUN apk add --no-cache nodejs gettext && \
 EXPOSE 8080
 
 COPY --from=builder /build/selector/dist /usr/share/nginx/html/selector
-COPY --from=builder /build/save-sync/dist /app/save-sync/dist
-COPY --from=builder /build/save-sync/node_modules /app/save-sync/node_modules
+COPY --from=builder /build/server/dist /app/server/dist
+COPY --from=builder /build/server/node_modules /app/server/node_modules
 
 COPY deploy/nginx/nginx.conf.template /etc/nginx/nginx.conf.template
 COPY deploy/nginx/sync-client.js /usr/share/nginx/html/selector/sync-client.js

@@ -1,1 +1,1 @@
-{"root":["./src/app.tsx","./src/main.tsx","./src/types.ts","./src/components/adminmodal.tsx","./src/components/gamecard.tsx","./src/components/gameview.tsx","./src/components/searchbar.tsx","./src/hooks/useadmin.ts","./src/hooks/usegames.ts"],"version":"5.9.3"}
+{"root":["./src/app.tsx","./src/constants.ts","./src/main.tsx","./src/types.ts","./src/components/adminmodal.tsx","./src/components/gamecard.tsx","./src/components/gameview.tsx","./src/components/searchbar.tsx","./src/hooks/useadmin.ts","./src/hooks/usegames.ts"],"version":"5.9.3"}

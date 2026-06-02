@@ -1,9 +1,6 @@
 import { Router, type Request, type Response } from 'express'
-import type { Database } from '../storage/db.js'
-
-function param(val: string | string[] | undefined): string {
-  return Array.isArray(val) ? val[0]! : val ?? ''
-}
+import type { Database, GameRow } from '../db/index.js'
+import { param } from './v1.js'
 
 export function createGamesRouter(db: Database): Router {
   const router = Router()
@@ -28,7 +25,7 @@ export function createGamesRouter(db: Database): Router {
     const slug = param(req.params.slug)
     const { title, tags } = req.body
 
-    const updates: Record<string, unknown> = {}
+    const updates: Partial<GameRow> = {}
     if (title !== undefined) updates.title = title
     if (tags !== undefined) updates.tags = JSON.stringify(Array.isArray(tags) ? tags : [])
 
@@ -37,7 +34,7 @@ export function createGamesRouter(db: Database): Router {
       return
     }
 
-    const ok = db.updateGame(slug, updates as any)
+    const ok = db.updateGame(slug, updates)
     if (!ok) {
       res.status(404).json({ error: 'Game not found' })
       return
@@ -83,8 +80,8 @@ export function createGamesRouter(db: Database): Router {
       return
     }
 
-    db.updateGame(slug, { sort_order: neighbor.sort_order } as any)
-    db.updateGame(neighbor.slug, { sort_order: game.sort_order } as any)
+    db.updateGame(slug, { sort_order: neighbor.sort_order })
+    db.updateGame(neighbor.slug, { sort_order: game.sort_order })
     await db.save()
 
     res.json({ ok: true })
@@ -102,12 +99,4 @@ function toGame(row: GameRow) {
   }
 }
 
-interface GameRow {
-  slug: string
-  title: string
-  tags: string
-  thumbnail: string
-  sort_order: number
-  created_at: string
-  updated_at: string
-}
+

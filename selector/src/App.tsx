@@ -42,6 +42,7 @@ export default function App() {
           <button
             onClick={() => setAdminOpen(true)}
             className="rounded-xl border border-gray-700/50 bg-gray-800/60 p-2.5 text-gray-400 hover:border-indigo-500/40 hover:text-indigo-300 transition-all backdrop-blur-sm"
+            aria-label="Manage games"
             title="Manage games"
           >
             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -75,6 +76,7 @@ export default function App() {
                     ? 'bg-indigo-600 text-white border-indigo-500'
                     : 'bg-gray-800/60 text-gray-400 border-gray-700/50 hover:border-gray-500'
                 }`}
+                aria-pressed={selectedTag === null}
               >
                 All
               </button>
@@ -87,6 +89,7 @@ export default function App() {
                       ? 'bg-indigo-600 text-white border-indigo-500'
                       : 'bg-gray-800/60 text-gray-400 border-gray-700/50 hover:border-gray-500'
                   }`}
+                  aria-pressed={tag === selectedTag}
                 >
                   {tag}
                 </button>

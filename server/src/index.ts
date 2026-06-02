@@ -3,8 +3,8 @@ import { createSavesRouter } from './routes/saves.js'
 import { createGamesRouter } from './routes/games.js'
 import { createV1Router } from './routes/v1.js'
 import { mkdir } from 'node:fs/promises'
-import { FsStorage } from './storage/fs.js'
-import { Database } from './storage/db.js'
+import { FsStorage } from './saves/fs.js'
+import { Database } from './db/index.js'
 
 const PORT = parseInt(process.env['PORT'] || '3000', 10)
 const SAVES_DIR = process.env['SAVES_DIR'] || '/data/saves'
@@ -42,7 +42,7 @@ async function main() {
   await db.save()
 
   app.listen(PORT, () => {
-    console.log(`save-sync listening on port ${PORT}`)
+    console.log(`server listening on port ${PORT}`)
     console.log(`  SAVES_DIR=${SAVES_DIR}`)
     console.log(`  DATA_DIR=${DATA_DIR}`)
     console.log(`  GAMES_DIR=${GAMES_DIR}`)

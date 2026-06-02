@@ -57,7 +57,7 @@ http {
       add_header X-Content-Type-Options "nosniff" always;
       add_header Cache-Control $cache_control;
 
-      sub_filter '</head>' '<script src="/api/saves/sync-client.js"></script></head>';
+      sub_filter '</body>' '<script src="/api/saves/sync-client.js"></script></body>';
       sub_filter_once on;
     }
 

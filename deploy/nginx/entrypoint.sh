@@ -13,16 +13,16 @@ export DATA_DIR
 
 envsubst '${GAMES_DIR} ${DATA_DIR}' < /etc/nginx/nginx.conf.template > /tmp/nginx/nginx.conf
 
-node /app/save-sync/dist/index.js &
-SAVE_SYNC_PID=$!
+node /app/server/dist/index.js &
+SERVER_PID=$!
 
 sleep 0.5
-if ! kill -0 "$SAVE_SYNC_PID" 2>/dev/null; then
-  echo "save-sync failed to start" >&2
+if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+  echo "server failed to start" >&2
   exit 1
 fi
 
-trap 'kill $SAVE_SYNC_PID; exit' INT TERM
+trap 'kill $SERVER_PID; exit' INT TERM
 
 echo "Starting nginx..."
 nginx -c /tmp/nginx/nginx.conf -g 'daemon off;'

@@ -5,6 +5,7 @@ export default function GameView() {
   const { slug } = useParams<{ slug: string }>()
   const navigate = useNavigate()
   const [loaded, setLoaded] = useState(false)
+  const [iframeError, setIframeError] = useState(false)
   const fullscreenRef = useRef<HTMLDivElement>(null)
 
   const handleBack = useCallback(() => {
@@ -13,6 +14,16 @@ export default function GameView() {
       iframe.contentWindow.postMessage({ type: 'renplay-save-now' }, '*')
     }
     setTimeout(() => navigate('/'), 300)
+  }, [navigate])
+
+  useEffect(() => {
+    function onMessage(e: MessageEvent) {
+      if (e.data?.type === 'renplay-game-exited') {
+        navigate('/')
+      }
+    }
+    window.addEventListener('message', onMessage)
+    return () => window.removeEventListener('message', onMessage)
   }, [navigate])
 
   useEffect(() => {
@@ -40,9 +51,23 @@ export default function GameView() {
 
   return (
     <div className="relative h-screen bg-gray-950 overflow-hidden">
-      {!loaded && (
+      {!loaded && !iframeError && (
         <div className="absolute inset-0 flex items-center justify-center z-0">
           <div className="h-10 w-10 animate-spin rounded-full border-2 border-indigo-500 border-t-transparent" />
+        </div>
+      )}
+
+      {iframeError && (
+        <div className="absolute inset-0 flex items-center justify-center z-0">
+          <div className="text-center">
+            <p className="text-gray-400 mb-4">Failed to load game</p>
+            <button
+              onClick={() => navigate('/')}
+              className="rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-indigo-500 transition-colors"
+            >
+              Go back
+            </button>
+          </div>
         </div>
       )}
 
@@ -53,6 +78,7 @@ export default function GameView() {
           title={slug}
           allow="autoplay"
           onLoad={() => setLoaded(true)}
+          onError={() => setIframeError(true)}
         />
       </div>
 

@@ -3,7 +3,7 @@ import multer from 'multer'
 import { unlink } from 'node:fs/promises'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import type { Database } from '../storage/db.js'
+import type { Database } from '../db/index.js'
 
 const MB = 1024 * 1024
 
@@ -105,6 +105,6 @@ export function createV1Router(db: Database, thumbnailsDir: string, gamesDir: st
   return router
 }
 
-function param(val: string | string[] | undefined): string {
+export function param(val: string | string[] | undefined): string {
   return Array.isArray(val) ? val[0]! : val ?? ''
 }

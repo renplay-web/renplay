@@ -215,6 +215,14 @@
     uploadSaves(true);
   });
 
+  var _origAtExit = window.atExit;
+  window.atExit = function () {
+    if (window.parent) {
+      window.parent.postMessage({ type: 'renplay-game-exited' }, '*');
+    }
+    if (_origAtExit) _origAtExit();
+  };
+
   var fsCheckTimer = setInterval(function () {
     var FS = getFS();
     if (FS && FS.analyzePath(LS_KEY).exists) {

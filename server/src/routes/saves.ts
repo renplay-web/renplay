@@ -1,6 +1,5 @@
 import { Router } from 'express'
-import type { SaveData } from '../storage/fs.js'
-import type { FsStorage } from '../storage/fs.js'
+import type { SaveData, FsStorage } from '../saves/fs.js'
 
 export function createSavesRouter(storage: FsStorage): Router {
   const router = Router()

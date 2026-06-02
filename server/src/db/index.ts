@@ -1,7 +1,6 @@
 import { readFile, writeFile, mkdir, readdir, stat } from 'node:fs/promises'
 import { join, dirname } from 'node:path'
 import initSqlJs, { type Database as SqlJsDatabase } from 'sql.js'
-
 export interface GameRow {
   slug: string
   title: string
