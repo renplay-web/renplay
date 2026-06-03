@@ -1,52 +1,15 @@
-name: Publish
+name: Release
 
 on:
   push:
-    branches: [main, dev]
-  pull_request:
-    branches: [main, dev]
+    branches: [main]
 
 permissions:
   contents: write
   packages: write
 
 jobs:
-  check:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Install server deps
-        run: npm ci
-        working-directory: server
-
-      - name: Typecheck server
-        run: npx tsc --noEmit
-        working-directory: server
-
-      - name: Run server tests
-        run: npx vitest run
-        working-directory: server
-        continue-on-error: true
-
-      - name: Install selector deps
-        run: npm ci
-        working-directory: selector
-
-      - name: Typecheck selector
-        run: npx tsc -b --noEmit
-        working-directory: selector
-
-      - name: Build selector
-        run: npm run build
-        working-directory: selector
-
-  release:
-    if: github.event_name == 'push' && github.ref_name == 'main'
+  detect:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.extract.outputs.version }}
@@ -58,14 +21,13 @@ jobs:
         run: |
           VERSION=""
           MSG=$(git log -1 --format=%s)
-          # "Merge pull request #N from renplay-web/release-v0.1.1"
+          # "Merge pull request #N from org/release-v0.1.1"
           if echo "$MSG" | grep -qE 'release-([vV]?[0-9]+\.[0-9]+\.[0-9]+)'; then
             VERSION=$(echo "$MSG" | sed -nE 's/.*release-([vV]?[0-9]+\.[0-9]+\.[0-9]+).*/\1/p')
-          # "Version 0.1.0 (#123)"  (squash merge)
+          # "Version 0.1.0 (#123)" (squash merge)
           elif echo "$MSG" | grep -qE '^[Vv]ersion[[:space:]]*[0-9]+\.[0-9]+\.[0-9]+'; then
             VERSION=$(echo "$MSG" | sed -nE 's/^[Vv]ersion[[:space:]]*([0-9]+\.[0-9]+\.[0-9]+).*/\1/p')
           fi
-          # Strip leading v if present
           VERSION="${VERSION#v}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           if [ -n "$VERSION" ]; then
@@ -74,12 +36,18 @@ jobs:
             echo "Not a release merge"
           fi
 
+  create:
+    needs: [detect]
+    if: needs.detect.outputs.version != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
       - name: Create Release
-        if: steps.extract.outputs.version != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          V="${{ steps.extract.outputs.version }}"
+          V="${{ needs.detect.outputs.version }}"
           TAG="v$V"
           if gh release view "$TAG" --json name > /dev/null 2>&1; then
             echo "Release $TAG already exists — skipping"
@@ -92,13 +60,8 @@ jobs:
           fi
 
   build:
-    needs: [check, release]
-    if: |
-      always() && (
-        github.event_name == 'pull_request'
-        || github.ref_name == 'dev'
-        || needs.release.outputs.version != ''
-      )
+    needs: [detect]
+    if: needs.detect.outputs.version != ''
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -111,14 +74,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Docker tags
+      - name: Docker meta
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
-            type=raw,value=edge,enable=${{ github.ref_name == 'dev' }}
-            type=raw,value=${{ needs.release.outputs.version }},enable=${{ needs.release.outputs.version != '' }}
+            type=raw,value=${{ needs.detect.outputs.version }}
             type=sha,prefix=,suffix=,format=short
 
       - uses: docker/build-push-action@v6
@@ -126,6 +88,6 @@ jobs:
           context: .
           file: deploy/nginx/Dockerfile
           platforms: linux/amd64
-          push: ${{ github.event_name != 'pull_request' }}
+          push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
