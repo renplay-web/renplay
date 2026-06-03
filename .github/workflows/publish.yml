@@ -8,14 +8,92 @@ on:
     branches: [main]
 
 permissions:
-  contents: read
+  contents: write
   packages: write
 
 jobs:
-  build:
+  check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install server deps
+        run: npm ci
+        working-directory: server
+
+      - name: Typecheck server
+        run: npx tsc --noEmit
+        working-directory: server
+
+      - name: Run server tests
+        run: npx vitest run
+        working-directory: server
+        continue-on-error: true
+
+      - name: Install selector deps
+        run: npm ci
+        working-directory: selector
+
+      - name: Typecheck selector
+        run: npx tsc -b --noEmit
+        working-directory: selector
+
+      - name: Build selector
+        run: npm run build
+        working-directory: selector
+
+  release:
+    if: github.event_name == 'push' && github.ref_name == 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version from merge commit
+        id: extract
+        run: |
+          VERSION=""
+          MSG=$(git log -1 --format=%s)
+          if echo "$MSG" | grep -qE 'release-[0-9]+\.[0-9]+\.[0-9]+'; then
+            VERSION=$(echo "$MSG" | sed -nE 's/.*release-([0-9]+\.[0-9]+\.[0-9]+).*/\1/p')
+          elif echo "$MSG" | grep -qE '^[Vv]ersion[[:space:]]*[0-9]+\.[0-9]+\.[0-9]+'; then
+            VERSION=$(echo "$MSG" | sed -nE 's/^[Vv]ersion[[:space:]]*([0-9]+\.[0-9]+\.[0-9]+).*/\1/p')
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if [ -n "$VERSION" ]; then
+            echo "Detected release v$VERSION"
+          else
+            echo "Not a release merge"
+          fi
+
+      - name: Create Release
+        if: steps.extract.outputs.version != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          V="v${{ steps.extract.outputs.version }}"
+          if gh release view "$V" --json name > /dev/null 2>&1; then
+            echo "Release $V already exists — skipping"
+          else
+            gh release create "$V" \
+              --target "${{ github.sha }}" \
+              --title "$V" \
+              --generate-notes \
+              --latest
+          fi
+
+  build:
+    needs: [check, release]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
 
       - uses: docker/setup-buildx-action@v3
 
