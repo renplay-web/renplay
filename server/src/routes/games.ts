@@ -96,6 +96,7 @@ function toGame(row: GameRow) {
     title: row.title,
     tags: JSON.parse(row.tags || '[]'),
     thumbnail: row.thumbnail || undefined,
+    walkthrough: row.walkthrough || undefined,
   }
 }
 

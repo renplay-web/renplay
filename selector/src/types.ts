@@ -3,6 +3,7 @@ export interface Game {
   title: string
   tags?: string[]
   thumbnail?: string
+  walkthrough?: string
 }
 
 export interface GamesResponse {

@@ -97,5 +97,12 @@ http {
       try_files $uri =404;
     }
 
+    location /api/walkthroughs/ {
+      alias ${DATA_DIR}/walkthroughs/;
+      add_header X-Content-Type-Options "nosniff" always;
+      add_header Cache-Control "no-cache";
+      try_files $uri =404;
+    }
+
   }
 }

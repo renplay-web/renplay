@@ -15,6 +15,7 @@ async function main() {
   const db = await Database.open(DATA_DIR)
 
   await mkdir(`${DATA_DIR}/thumbnails`, { recursive: true })
+  await mkdir(`${DATA_DIR}/walkthroughs`, { recursive: true })
 
   const app = express()
   app.use(express.json({ limit: '50mb' }))

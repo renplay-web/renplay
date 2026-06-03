@@ -11,13 +11,15 @@ interface Props {
 }
 
 export default function AdminModal({ open, onClose, games, onChanged }: Props) {
-  const { update, remove, reorder, scan, uploadThumbnail, removeThumbnail, saving, error, clearError, gameToForm } = useAdmin()
+  const { update, remove, reorder, scan, uploadThumbnail, removeThumbnail, uploadWalkthrough, removeWalkthrough, saving, error, clearError, gameToForm } = useAdmin()
   const [editing, setEditing] = useState<EditFormData | null>(null)
   const [editSlug, setEditSlug] = useState<string | null>(null)
   const [form, setForm] = useState<EditFormData>({ title: '', tags: '' })
   const [scanResult, setScanResult] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const [uploadingWalkthrough, setUploadingWalkthrough] = useState(false)
+  const walkthroughInputRef = useRef<HTMLInputElement>(null)
   const [orderedGames, setOrderedGames] = useState<Game[]>([])
   const [dragIdx, setDragIdx] = useState<number | null>(null)
   const dragOverIdx = useRef<number | null>(null)
@@ -103,6 +105,22 @@ export default function AdminModal({ open, onClose, games, onChanged }: Props) {
   const handleRemoveThumbnail = async () => {
     if (!editSlug) return
     const ok = await removeThumbnail(editSlug)
+    if (ok) onChanged()
+  }
+
+  const handleUploadWalkthrough = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !editSlug) return
+    setUploadingWalkthrough(true)
+    const ok = await uploadWalkthrough(editSlug, file)
+    setUploadingWalkthrough(false)
+    if (ok) onChanged()
+    if (walkthroughInputRef.current) walkthroughInputRef.current.value = ''
+  }
+
+  const handleRemoveWalkthrough = async () => {
+    if (!editSlug) return
+    const ok = await removeWalkthrough(editSlug)
     if (ok) onChanged()
   }
 
@@ -241,6 +259,45 @@ export default function AdminModal({ open, onClose, games, onChanged }: Props) {
                     >
                       Remove
                     </button>
+                  )}
+                </div>
+              </div>
+              <div className="col-span-2">
+                <label className="block text-xs font-medium text-gray-500 mb-2">Walkthrough PDF</label>
+                <div className="flex items-center gap-3">
+                  <input
+                    ref={walkthroughInputRef}
+                    type="file"
+                    accept="application/pdf"
+                    onChange={handleUploadWalkthrough}
+                    className="hidden"
+                  />
+                  <button
+                    onClick={() => walkthroughInputRef.current?.click()}
+                    disabled={uploadingWalkthrough}
+                    className="rounded-lg border border-gray-700 px-3 py-1.5 text-xs text-gray-400 hover:bg-gray-700 hover:text-white transition-colors disabled:opacity-40"
+                  >
+                    {uploadingWalkthrough ? 'Uploading...' : 'Upload'}
+                  </button>
+                  {editingGame?.walkthrough ? (
+                    <>
+                      <a
+                        href={`/api/walkthroughs/${editingGame.walkthrough}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="rounded-lg border border-gray-700 px-3 py-1.5 text-xs text-indigo-400 hover:bg-gray-700 hover:text-indigo-300 transition-colors"
+                      >
+                        View
+                      </a>
+                      <button
+                        onClick={handleRemoveWalkthrough}
+                        className="rounded-lg border border-red-900/50 px-3 py-1.5 text-xs text-red-400 hover:bg-red-900/30 hover:text-red-300 transition-colors"
+                      >
+                        Remove
+                      </button>
+                    </>
+                  ) : (
+                    <span className="text-xs text-gray-600">No walkthrough uploaded</span>
                   )}
                 </div>
               </div>

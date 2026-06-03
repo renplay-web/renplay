@@ -6,6 +6,7 @@ export interface GameRow {
   title: string
   tags: string
   thumbnail: string
+  walkthrough: string
   sort_order: number
   created_at: string
   updated_at: string
@@ -62,6 +63,11 @@ export class Database {
       this.db.run('PRAGMA user_version = 2')
     }
 
+    if (version < 3) {
+      try { this.db.run("ALTER TABLE games ADD COLUMN walkthrough TEXT DEFAULT ''") } catch {}
+      this.db.run('PRAGMA user_version = 3')
+    }
+
     this.db.run(`
       CREATE TABLE IF NOT EXISTS meta (
         key   TEXT PRIMARY KEY,
@@ -97,9 +103,9 @@ export class Database {
     const sortOrder = (result[0]?.values[0]?.[0] ?? 0) as number
 
     this.db.run(
-      `INSERT INTO games (slug, title, tags, thumbnail, sort_order)
-       VALUES (?, ?, ?, ?, ?)`,
-      [row.slug, row.title, row.tags, row.thumbnail, sortOrder],
+      `INSERT INTO games (slug, title, tags, thumbnail, walkthrough, sort_order)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [row.slug, row.title, row.tags, row.thumbnail, row.walkthrough, sortOrder],
     )
   }
 
@@ -109,11 +115,12 @@ export class Database {
 
     const merged = { ...existing, ...updates, updated_at: new Date().toISOString() }
     this.db.run(
-      `UPDATE games SET title=?, tags=?, thumbnail=?, sort_order=?, updated_at=? WHERE slug=?`,
+      `UPDATE games SET title=?, tags=?, thumbnail=?, walkthrough=?, sort_order=?, updated_at=? WHERE slug=?`,
       [
         merged.title,
         merged.tags,
         merged.thumbnail,
+        merged.walkthrough,
         merged.sort_order,
         merged.updated_at,
         slug,
@@ -182,7 +189,7 @@ export class Database {
       if (this.getGame(slug)) continue
 
       const title = await this.detectTitle(fullPath) || entry
-      this.createGame({ slug, title, tags: '[]', thumbnail: '' })
+      this.createGame({ slug, title, tags: '[]', thumbnail: '', walkthrough: '' })
       created.push(slug)
     }
 

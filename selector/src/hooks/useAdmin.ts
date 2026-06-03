@@ -148,5 +148,48 @@ export function useAdmin() {
     }
   }, [])
 
-  return { update, remove, reorder, scan, uploadThumbnail, removeThumbnail, saving, error, clearError, gameToForm }
+  const uploadWalkthrough = useCallback(async (slug: string, file: File): Promise<boolean> => {
+    setSaving(true)
+    setError(null)
+    try {
+      const fd = new FormData()
+      fd.append('walkthrough', file)
+      const res = await fetch(`/api/v1/games/${encodeURIComponent(slug)}/walkthrough`, {
+        method: 'POST',
+        body: fd,
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || `Upload failed (${res.status})`)
+      }
+      return true
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Unknown error')
+      return false
+    } finally {
+      setSaving(false)
+    }
+  }, [])
+
+  const removeWalkthrough = useCallback(async (slug: string): Promise<boolean> => {
+    setSaving(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/v1/games/${encodeURIComponent(slug)}/walkthrough`, {
+        method: 'DELETE',
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || `Remove failed (${res.status})`)
+      }
+      return true
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Unknown error')
+      return false
+    } finally {
+      setSaving(false)
+    }
+  }, [])
+
+  return { update, remove, reorder, scan, uploadThumbnail, removeThumbnail, uploadWalkthrough, removeWalkthrough, saving, error, clearError, gameToForm }
 }

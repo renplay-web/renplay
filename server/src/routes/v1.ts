@@ -33,6 +33,28 @@ export function createV1Router(db: Database, thumbnailsDir: string, gamesDir: st
     },
   })
 
+  const walkthroughUpload = multer({
+    storage: multer.diskStorage({
+      destination: (_req, _file, cb) => {
+        const walkthroughsDir = join(thumbnailsDir, '..', 'walkthroughs')
+        mkdirSync(walkthroughsDir, { recursive: true })
+        cb(null, walkthroughsDir)
+      },
+      filename: (req, _file, cb) => {
+        const slug = param(req.params.slug)
+        cb(null, `${slug}.pdf`)
+      },
+    }),
+    limits: { fileSize: 50 * MB, files: 1 },
+    fileFilter: (_req, file, cb) => {
+      if (file.mimetype === 'application/pdf') {
+        cb(null, true)
+      } else {
+        cb(new Error('Only PDF files are allowed'))
+      }
+    },
+  })
+
   router.post('/scan-library', async (req: Request, res: Response) => {
     const result = await db.scanLibrary(gamesDir)
     await db.save()
@@ -97,6 +119,60 @@ export function createV1Router(db: Database, thumbnailsDir: string, gamesDir: st
     }
 
     db.updateGame(slug, { thumbnail: '' } as any)
+    await db.save()
+
+    res.json({ ok: true })
+  })
+
+  router.post('/games/:slug/walkthrough', (req: Request, res: Response) => {
+    walkthroughUpload.single('walkthrough')(req, res, async (err) => {
+      if (err) {
+        const message = err instanceof multer.MulterError ? err.message : err.message
+        res.status(400).json({ error: message })
+        return
+      }
+
+      const slug = param(req.params.slug)
+      const game = db.getGame(slug)
+      if (!game) {
+        res.status(404).json({ error: 'Game not found' })
+        return
+      }
+
+      const file = req.file
+      if (!file) {
+        res.status(400).json({ error: 'No file uploaded' })
+        return
+      }
+
+      const walkthroughsDir = join(thumbnailsDir, '..', 'walkthroughs')
+      if (game.walkthrough) {
+        try { await unlink(join(walkthroughsDir, game.walkthrough)) } catch {}
+      }
+
+      db.updateGame(slug, { walkthrough: file.filename } as any)
+      await db.save()
+
+      res.json({ ok: true, walkthrough: file.filename })
+    })
+  })
+
+  router.delete('/games/:slug/walkthrough', async (req: Request, res: Response) => {
+    const slug = param(req.params.slug)
+    const game = db.getGame(slug)
+    if (!game) {
+      res.status(404).json({ error: 'Game not found' })
+      return
+    }
+
+    const walkthroughsDir = join(thumbnailsDir, '..', 'walkthroughs')
+    if (game.walkthrough) {
+      try {
+        await unlink(join(walkthroughsDir, game.walkthrough))
+      } catch {}
+    }
+
+    db.updateGame(slug, { walkthrough: '' } as any)
     await db.save()
 
     res.json({ ok: true })
