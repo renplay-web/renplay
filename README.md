@@ -1,6 +1,13 @@
 # Renplay
 
-Self-hosted Ren'Py game library with browser play, web-based game management, and cloud save sync.
+**Self-hosted Ren'Py game library with browser play, cloud save sync, and progressive asset loading.**
+
+Renplay lets you play your Ren'Py visual novels in any browser — on desktop, tablet, or phone — without installing each game. It manages the full lifecycle: preparing web builds, hosting them, syncing saves across devices, and providing a clean library UI.
+
+> [!TIP]
+> Renplay is designed for large games (10 GB+). It uses Ren'Py's native progressive download system so players don't have to wait for multi-gigabyte downloads.
+
+---
 
 ## Quick Start
 
@@ -8,161 +15,179 @@ Self-hosted Ren'Py game library with browser play, web-based game management, an
 # 1. Build the Docker image
 make build
 
-# 2. Prepare directories
+# 2. Create directories
 mkdir -p games data
 
 # 3. Run
 make run
-# or: docker compose up
 ```
 
-Open http://localhost:8080
+Open **http://localhost:8080**.
 
-## Adding Games via Web UI
+---
 
-1. Click the **gear icon** (⚙) in the top-right corner
-2. Click the **"Add Game"** button
-3. Fill in:
-   - **Slug** — URL path (e.g., `my-game`), matches the subdirectory in `$GAMES_DIR`
-   - **Title** — display name
-   - **Author** — optional
-   - **Description** — short blurb shown on the card
-   - **Tags** — comma-separated (e.g., `visual-novel, romance`)
-   - **Thumbnail path** — optional path to a thumbnail image
-4. Click **Create**
+## How It Works
 
-To upload a custom thumbnail, click **"Choose file"** while editing a game (supports JPEG, PNG, WebP, GIF).
+1. **Prepare** — convert a Ren'Py game to web using the SDK (one command)
+2. **Add** — drop the web build into your `games/` folder, scan from the admin panel
+3. **Play** — open your library, click a game, and it streams in your browser
 
-## Adding Games via games.json (Deprecated)
+---
 
-The old static `games.json` approach has been replaced by the SQLite database. Use the web UI instead.
-
-## Converting a Ren'Py Game for Web
+## Preparing a Game
 
 ### Prerequisites
 
 - **Ren'Py SDK 8.5+** — download from [renpy.org](https://www.renpy.org/)
-- A Ren'Py game project folder (contains `game/`, `renpy/`, etc.)
+- A Ren'Py game project (a folder containing `game/`, `renpy/`, etc.)
 
-### Method A: Ren'Py Launcher (GUI)
-
-1. Open the game project in the Ren'Py Launcher
-2. Select the game from the list on the left
-3. Click **"Web"** (bottom-left)
-4. Click **"Build Web Application"**
-5. Wait for the build to complete
-6. Click **"Open Build Directory"** to find the output
-
-The output is a directory named like `YourGame-1.0-web/`.
-
-### Method B: Command Line
+### Basic Web Build
 
 ```bash
-# If renpy is in your PATH:
-renpy web /path/to/game
-
-# Or on macOS with the SDK app:
-/Applications/RenPy.app/Contents/MacOS/renpy web /path/to/game
+/path/to/renpy.sh /path/to/launcher web_build /path/to/game/ --destination /path/to/output/
 ```
 
-The output will be in the project's `dists/` directory.
-
-### Post-Processing (Required for Save Sync)
+The output is a self-contained web distribution. Copy it to your `games/` folder:
 
 ```bash
-# Run the injection script on the web build
-./deploy/scripts/prepare-game.sh ./YourGame-1.0-web/
+cp -r /path/to/output/* games/my-game/
 ```
 
-This injects the save-sync client script so saves sync across devices.
+### Progressive Download (for Large Games)
 
-### Deploying
+For games over a few hundred megabytes, configure progressive asset loading so players only download what they need:
+
+#### 1. Extract RPA archives
+
+Ren'Py's progressive download system works on individual files, not files inside RPA archives. Extract all `.rpa` files **first**:
 
 ```bash
-# 1. Copy the processed build to your games directory
-mkdir -p games/your-game
-cp -r YourGame-1.0-web/* games/your-game/
+cd /path/to/game/game/
 
-# 2. Add the game via the web UI (gear icon → Add Game)
-#    Slug must match the directory name
+# Extract each archive
+unrpa -p . archive.rpa
+unrpa -p . images.rpa
+unrpa -p . audio.rpa
+# ... repeat for every .rpa file
 ```
 
-## Save Sync
+> [!WARNING]
+> **You must delete every `.rpa` archive after extraction.** The game will still work if you leave them, but the Ren'Py ProgressiveFilter cannot see inside archives — files hidden in a remaining `.rpa` will be baked into the boot zip instead of streamed on demand, defeating progressive download.
+>
+> **Check carefully.** Archives can be deeply nested in the directory tree and there may be many of them. Some games split assets across dozens of archives (e.g., `ep1_images.rpa`, `ep2_images.rpa`, `gui.rpa`, `movies.rpa`, `music_ep1.rpa`, …). Verify none remain before proceeding:
+> ```bash
+> find /path/to/game/game/ -name '*.rpa'
+> # Should return nothing
+> ```
 
-Renplay syncs game saves across devices:
+#### 2. Create `progressive_download.txt`
 
-1. Enter a **profile name** on the game selector page
-2. Saves are automatically uploaded to the server every 10 seconds while playing
-3. When you reload or open the game on another device, saves are downloaded and restored
+Place this file in your game project root (next to `game/`). It tells the build which files to keep in the boot zip vs. stream on demand:
 
-Saves are stored as individual files in `$SAVES_DIR/{game-slug}/{profile-name}/`.
+```
+# Keep GUI in the boot zip
+- image game/gui/**
+# Stream everything else
++ image game/images/**
++ music game/music/**
++ music game/audio/**
++ voice game/voice/**
+```
 
-No authentication is required — the profile name acts as the save key.
+Valid types: `image`, `music`, `voice`. Videos are always streamed automatically.
 
-## Data Storage
+#### 3. Run the web build
 
-| Path | Env Var | Default | Contents |
-|------|---------|---------|----------|
-| Game files | `GAMES_DIR` | `/games` | Ren'Py web build directories (read-only NAS mount) |
-| Persistent data | `DATA_DIR` | `/data` | SQLite DB (`renplay.db`), uploaded thumbnails (`thumbnails/`) |
-| Saves | `SAVES_DIR` | `$DATA_DIR/saves` | Player save files |
+The SDK reads `progressive_download.txt`, excludes matched files from `game.zip`, copies them as individual files alongside the zip, and generates the metadata needed for on-demand download.
+
+#### 4. Deploy
+
+Copy the output to your `games/` folder and click **Scan for new games** in the admin panel (gear icon, top-right).
+
+> [!IMPORTANT]
+> Do **not** decompress `game.zip`. It is an Emscripten Virtual Filesystem archive read by the Ren'Py WASM engine at runtime — not a regular archive.
+
+---
+
+## Features
+
+### Save Sync
+
+Saves are automatically synced between devices. Pick a profile name on the library page, and saves upload every few seconds while you play. Open the same game on another device (or after clearing your browser data) and your saves are restored.
+
+### Library Management
+
+- Upload custom **thumbnails** per game
+- Upload **walkthrough PDFs** — a button appears in the game view
+- Drag-and-drop reordering, tags, and search
+
+---
 
 ## Configuration
 
-| Env Var | Default | Description |
-|---------|---------|-------------|
-| `GAMES_DIR` | `/games` | Directory containing game web builds |
-| `DATA_DIR` | `/data` | Persistent data storage (DB, thumbnails) |
-| `SAVES_DIR` | `$DATA_DIR/saves` | Directory for persistent save data |
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `GAMES_DIR` | `/games` | Directory with game web builds |
+| `DATA_DIR` | `/data` | Persistent data (database, thumbnails, walkthroughs, saves) |
+| `SAVES_DIR` | `$DATA_DIR/saves` | Save file storage |
+
+---
 
 ## Architecture
 
 ```
 Browser                          Docker Container
 ┌─────────────────┐               ┌──────────────────────────────┐
-│ Game Selector    │  ───/───→   │ nginx (port 8080)            │
-│ (React SPA)      │             │  / → React SPA               │
-│  Admin panel     │             │  /play/* → GAMES_DIR          │
-│  (CRUD + thumb)  │             │  /api/games → node backend   │
-│                  │             │  /api/thumbnails → DATA_DIR   │
-│ Ren'Py Game      │  ───/play──→│                              │
-│ (WASM)           │             │ node (127.0.0.1:3000)         │
-│  sync-client.js──┼──/api/saves→│  ├─ games CRUD (SQLite)      │
-│  ↕ IndexedDB     │             │  ├─ thumbnail upload         │
-└─────────────────┘             │  └─ save sync                │
+│ Game Library     │  ───/───→   │ nginx (port 8080)            │
+│ (React SPA)      │             │  / → SPA                     │
+│  Admin panel     │             │  /play/* → games directory   │
+│  (CRUD + upload) │             │  /api/* → node backend       │
+│                  │             │                              │
+│ Ren'Py Game      │  ───/play──→│ node (127.0.0.1:3000)         │
+│ (WASM)           │             │  ├─ games CRUD (SQLite)      │
+│  save sync ──────┼──/api/saves→│  ├─ thumbnail upload         │
+└─────────────────┘             │  ├─ walkthrough upload       │
+                                  │  └─ save storage            │
                                   │  DATA_DIR/                    │
-                                  │   ├─ renplay.db (SQLite)     │
-                                  │   ├─ thumbnails/             │
-                                  │   └─ saves/                  │
+                                  │   ├── renplay.db             │
+                                  │   ├── thumbnails/            │
+                                  │   ├── walkthroughs/          │
+                                  │   └── saves/                 │
                                   └──────────────────────────────┘
 ```
 
-## Building the Image
+---
+
+## Development
 
 ```bash
-docker build -t renplay:latest -f deploy/nginx/Dockerfile .
+make dev
 ```
 
-## Directory Structure
+Uses `docker compose up --build` with the local source mounted for hot-reload.
+
+---
+
+## Project Structure
 
 ```
 renplay/
-├── selector/              ← React + Vite game selector UI
-├── save-sync/             ← Node.js backend (Express + SQLite)
-├── deploy/
-│   ├── nginx/
-│   │   ├── Dockerfile
-│   │   ├── nginx.conf.template
-│   │   ├── entrypoint.sh
-│   │   └── sync-client.js
-│   └── scripts/
-│       └── prepare-game.sh
-├── games/                 ← Mount your GAMES_DIR here
-├── data/                  ← Mount your DATA_DIR here
-│   ├── renplay.db         ← SQLite database (auto-created)
-│   ├── thumbnails/        ← Uploaded thumbnails
-│   └── saves/             ← Player save files
+├── selector/          ← React + Vite game library UI
+├── server/            ← Node.js backend (Express + SQLite)
+├── deploy/nginx/      ← Docker image with nginx
+│   ├── Dockerfile
+│   ├── nginx.conf.template
+│   ├── entrypoint.sh
+│   └── sync-client.js
+├── games/             ← Your game web builds (mount here)
+├── data/              ← Persistent data (mount here)
 ├── docker-compose.yml
 ├── Makefile
 └── README.md
 ```
+
+---
+
+## License
+
+MIT

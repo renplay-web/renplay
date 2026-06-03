@@ -1,0 +1,71 @@
+name: Bug Report
+description: Report a problem with Renplay
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to fill out this bug report.
+
+        Before submitting, please make sure you've read the [preparing a game](https://github.com/renplay-web/renplay#preparing-a-game) section in the README.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: A clear and concise description of what the bug is.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      placeholder: |
+        1. Go to '…'
+        2. Click on '…'
+        3. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant Logs
+      description: Server logs, browser console errors, or screenshots.
+      render: shell
+
+  - type: checkboxes
+    id: progressive
+    attributes:
+      label: Progressive Download / Large Game Setup
+      description: |
+        If your bug involves a game not loading assets correctly, or a `game.zip` that is unexpectedly large,
+        please confirm the following.
+      options:
+        - label: I extracted **all** `.rpa` archives before running the web build
+        - label: I deleted every `.rpa` file after extraction (`find game/ -name '*.rpa'` returns nothing)
+        - label: I checked for archives that may be nested in subdirectories (e.g., `game/archive.rpa`, `game/images.rpa`, …)
+        - label: I re-ran the web build after extraction (not using a stale build)
+
+  - type: input
+    id: version
+    attributes:
+      label: Renplay Version
+      description: Git commit hash or tag (run `git log --oneline -1`)
+    validations:
+      required: true
+
+  - type: input
+    id: renpy-version
+    attributes:
+      label: Ren'Py SDK Version
+      description: e.g., 8.5.3

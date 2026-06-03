@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Discussion
+    url: https://github.com/renplay-web/renplay/discussions
+    about: Questions, ideas, and general discussion.
