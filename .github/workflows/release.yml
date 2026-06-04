@@ -7,6 +7,7 @@ on:
 permissions:
   contents: write
   packages: write
+  pull-requests: read
 
 jobs:
   detect:
@@ -18,18 +19,40 @@ jobs:
 
       - name: Extract version from merge commit
         id: extract
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION=""
           MSG=$(git log -1 --format=%s)
+          echo "Commit message: $MSG"
+
+          # Strategy 1: Standard merge commit
           # "Merge pull request #N from org/release-v0.1.1"
           if echo "$MSG" | grep -qE 'release-([vV]?[0-9]+\.[0-9]+\.[0-9]+)'; then
             VERSION=$(echo "$MSG" | sed -nE 's/.*release-([vV]?[0-9]+\.[0-9]+\.[0-9]+).*/\1/p')
-          # "Version 0.1.0 (#123)" (squash merge)
-          elif echo "$MSG" | grep -qE '^[Vv]ersion[[:space:]]*[0-9]+\.[0-9]+\.[0-9]+'; then
-            VERSION=$(echo "$MSG" | sed -nE 's/^[Vv]ersion[[:space:]]*([0-9]+\.[0-9]+\.[0-9]+).*/\1/p')
+            echo "Strategy 1 matched: $VERSION"
+
+          # Strategy 2: Squash merge — extract PR number, get branch via API
+          elif echo "$MSG" | grep -qE '\(#[0-9]+\)$'; then
+            PR=$(echo "$MSG" | sed -nE 's/.*\(#([0-9]+)\)$/\1/p')
+            echo "Strategy 2: PR #$PR"
+            BRANCH=$(gh pr view "$PR" --json headRefName --jq '.headRefName' 2>/dev/null || echo "")
+            echo "Source branch: $BRANCH"
+            if echo "$BRANCH" | grep -qE 'release-([vV]?[0-9]+\.[0-9]+\.[0-9]+)'; then
+              VERSION=$(echo "$BRANCH" | sed -nE 's/.*release-([vV]?[0-9]+\.[0-9]+\.[0-9]+).*/\1/p')
+              echo "Strategy 2 matched: $VERSION"
+            fi
+
+          # Strategy 3: Version string anywhere in message
+          # "Release v0.1.1 (#123)" or "v0.1.1"
+          elif echo "$MSG" | grep -qE '(^|[^0-9])([vV]?[0-9]+\.[0-9]+\.[0-9]+)'; then
+            VERSION=$(echo "$MSG" | sed -nE 's/.*([vV]?[0-9]+\.[0-9]+\.[0-9]+).*/\1/p')
+            echo "Strategy 3 matched: $VERSION"
           fi
+
           VERSION="${VERSION#v}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Final version: [$VERSION]"
 
   create:
     needs: [detect]
