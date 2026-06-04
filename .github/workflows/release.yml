@@ -1,0 +1,81 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.extract.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version from merge commit
+        id: extract
+        run: |
+          VERSION=""
+          MSG=$(git log -1 --format=%s)
+          # "Merge pull request #N from org/release-v0.1.1"
+          if echo "$MSG" | grep -qE 'release-([vV]?[0-9]+\.[0-9]+\.[0-9]+)'; then
+            VERSION=$(echo "$MSG" | sed -nE 's/.*release-([vV]?[0-9]+\.[0-9]+\.[0-9]+).*/\1/p')
+          # "Version 0.1.0 (#123)" (squash merge)
+          elif echo "$MSG" | grep -qE '^[Vv]ersion[[:space:]]*[0-9]+\.[0-9]+\.[0-9]+'; then
+            VERSION=$(echo "$MSG" | sed -nE 's/^[Vv]ersion[[:space:]]*([0-9]+\.[0-9]+\.[0-9]+).*/\1/p')
+          fi
+          VERSION="${VERSION#v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+  create:
+    needs: [detect]
+    if: needs.detect.outputs.version != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          V="${{ needs.detect.outputs.version }}"
+          TAG="v$V"
+          if gh release view "$TAG" --json name > /dev/null 2>&1; then
+            echo "Release $TAG already exists — skipping"
+          else
+            gh release create "$TAG" \
+              --target "${{ github.sha }}" \
+              --title "$TAG" \
+              --generate-notes \
+              --latest
+          fi
+
+  build:
+    needs: [detect]
+    if: needs.detect.outputs.version != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/nginx/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}:${{ needs.detect.outputs.version }}
+            ghcr.io/${{ github.repository }}:${{ github.sha }}
