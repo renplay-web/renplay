@@ -13,9 +13,10 @@ export interface SaveData {
 export class FsStorage {
   constructor(private baseDir: string) {}
 
-  async getSaves(_gameId: string): Promise<SaveData | null> {
+  async getSaves(saveDir: string | null): Promise<SaveData | null> {
     try {
-      const entries = await this.walkDir(this.baseDir, this.baseDir)
+      const root = saveDir ? join(this.baseDir, saveDir) : this.baseDir
+      const entries = await this.walkDir(root, root)
       return { entries }
     } catch {
       return null
@@ -43,10 +44,11 @@ export class FsStorage {
     return result
   }
 
-  async putSaves(_gameId: string, data: SaveData): Promise<void> {
+  async putSaves(saveDir: string | null, data: SaveData): Promise<void> {
+    const dir = saveDir || ''
     for (const entry of data.entries) {
       const safe = entry.name.replace(/[^a-zA-Z0-9._\/-]/g, '_')
-      const full = join(this.baseDir, safe)
+      const full = dir ? join(this.baseDir, dir, safe) : join(this.baseDir, safe)
       await mkdir(dirname(full), { recursive: true })
       await writeFile(full, Buffer.from(entry.data, 'base64'))
     }

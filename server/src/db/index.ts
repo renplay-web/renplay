@@ -1,6 +1,7 @@
 import { readFile, writeFile, mkdir, readdir, stat } from 'node:fs/promises'
 import { join, dirname } from 'node:path'
 import initSqlJs, { type Database as SqlJsDatabase } from 'sql.js'
+import AdmZip from 'adm-zip'
 export interface GameRow {
   slug: string
   title: string
@@ -10,6 +11,7 @@ export interface GameRow {
   sort_order: number
   created_at: string
   updated_at: string
+  save_dir: string
 }
 
 export class Database {
@@ -68,6 +70,11 @@ export class Database {
       this.db.run('PRAGMA user_version = 3')
     }
 
+    if (version < 4) {
+      try { this.db.run("ALTER TABLE games ADD COLUMN save_dir TEXT DEFAULT ''") } catch {}
+      this.db.run('PRAGMA user_version = 4')
+    }
+
     this.db.run(`
       CREATE TABLE IF NOT EXISTS meta (
         key   TEXT PRIMARY KEY,
@@ -103,9 +110,9 @@ export class Database {
     const sortOrder = (result[0]?.values[0]?.[0] ?? 0) as number
 
     this.db.run(
-      `INSERT INTO games (slug, title, tags, thumbnail, walkthrough, sort_order)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [row.slug, row.title, row.tags, row.thumbnail, row.walkthrough, sortOrder],
+      `INSERT INTO games (slug, title, tags, thumbnail, walkthrough, sort_order, save_dir)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [row.slug, row.title, row.tags, row.thumbnail, row.walkthrough, sortOrder, row.save_dir || ''],
     )
   }
 
@@ -115,13 +122,14 @@ export class Database {
 
     const merged = { ...existing, ...updates, updated_at: new Date().toISOString() }
     this.db.run(
-      `UPDATE games SET title=?, tags=?, thumbnail=?, walkthrough=?, sort_order=?, updated_at=? WHERE slug=?`,
+      `UPDATE games SET title=?, tags=?, thumbnail=?, walkthrough=?, sort_order=?, save_dir=?, updated_at=? WHERE slug=?`,
       [
         merged.title,
         merged.tags,
         merged.thumbnail,
         merged.walkthrough,
         merged.sort_order,
+        merged.save_dir || '',
         merged.updated_at,
         slug,
       ],
@@ -189,7 +197,8 @@ export class Database {
       if (this.getGame(slug)) continue
 
       const title = await this.detectTitle(fullPath) || entry
-      this.createGame({ slug, title, tags: '[]', thumbnail: '', walkthrough: '' })
+      const saveDir = await this.detectSaveDir(fullPath) || ''
+      this.createGame({ slug, title, tags: '[]', thumbnail: '', walkthrough: '', save_dir: saveDir })
       created.push(slug)
     }
 
@@ -204,6 +213,19 @@ export class Database {
       if (match) return match[1].trim()
     } catch {}
     return null
+  }
+
+  private async detectSaveDir(gameDir: string): Promise<string | null> {
+    try {
+      const zipPath = join(gameDir, 'game.zip')
+      const zip = new AdmZip(zipPath)
+      const entry = zip.getEntry('game/saves/navigation.json')
+      if (!entry) return null
+      const data = JSON.parse(entry.getData().toString('utf-8'))
+      return data?.build?.directory_name || null
+    } catch {
+      return null
+    }
   }
 
   async save(): Promise<void> {

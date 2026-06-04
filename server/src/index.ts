@@ -21,7 +21,7 @@ async function main() {
   app.use(express.json({ limit: '50mb' }))
 
   const saveStorage = new FsStorage(SAVES_DIR)
-  app.use('/api/saves', createSavesRouter(saveStorage))
+  app.use('/api/saves', createSavesRouter(saveStorage, db))
 
   app.get('/api/health', (_req, res) => {
     res.json({ ok: true, uptime: process.uptime() })
