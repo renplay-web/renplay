@@ -33,7 +33,9 @@ export default function App() {
             Renplay
           </h1>
           <p className="mt-1 text-sm text-gray-500">
-            {games.length} game{games.length !== 1 ? 's' : ''} available
+            {(search || selectedTag) && !loading
+              ? `${filtered.length} of ${games.length} game${games.length !== 1 ? 's' : ''}`
+              : `${games.length} game${games.length !== 1 ? 's' : ''} available`}
           </p>
         </div>
 

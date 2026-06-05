@@ -17,9 +17,15 @@ http {
   include /etc/nginx/mime.types;
   default_type application/octet-stream;
 
-  sendfile off;
+  sendfile on;
   tcp_nopush on;
   tcp_nodelay on;
+
+  gzip on;
+  gzip_vary on;
+  gzip_types text/plain text/css application/javascript application/json image/svg+xml;
+  gzip_min_length 1024;
+  gzip_comp_level 6;
 
   types {
     application/octet-stream data;
@@ -100,7 +106,7 @@ http {
     location /api/walkthroughs/ {
       alias ${DATA_DIR}/walkthroughs/;
       add_header X-Content-Type-Options "nosniff" always;
-      add_header Cache-Control "no-cache";
+      add_header Cache-Control "public, max-age=3600";
       try_files $uri =404;
     }
 

@@ -16,6 +16,8 @@ export interface GameRow {
 
 export class Database {
   private db!: SqlJsDatabase
+  private saveTimer: ReturnType<typeof setTimeout> | null = null
+  private pendingSaveResolvers: Array<() => void> = []
 
   private constructor(private dbPath: string) {}
 
@@ -145,9 +147,16 @@ export class Database {
   }
 
   reorderGames(slugs: string[]): void {
-    slugs.forEach((slug, idx) => {
-      this.db.run('UPDATE games SET sort_order = ?, updated_at = datetime(\'now\') WHERE slug = ?', [idx, slug])
-    })
+    this.db.run('BEGIN TRANSACTION')
+    try {
+      slugs.forEach((slug, idx) => {
+        this.db.run("UPDATE games SET sort_order = ?, updated_at = datetime('now') WHERE slug = ?", [idx, slug])
+      })
+      this.db.run('COMMIT')
+    } catch (e) {
+      this.db.run('ROLLBACK')
+      throw e
+    }
   }
 
   getGameAbove(sortOrder: number): GameRow | null {
@@ -175,29 +184,34 @@ export class Database {
   }
 
   async scanLibrary(gamesDir: string): Promise<{ created: string[] }> {
-    const created: string[] = []
-
     let entries: string[]
     try {
       entries = await readdir(gamesDir)
     } catch {
-      return { created }
+      return { created: [] }
     }
 
-    for (const entry of entries) {
+    const results = await Promise.allSettled(entries.map(async (entry) => {
       const fullPath = join(gamesDir, entry)
-
       let stats
-      try { stats = await stat(fullPath) } catch { continue }
-      if (!stats.isDirectory()) continue
+      try { stats = await stat(fullPath) } catch { return null }
+      if (!stats.isDirectory()) return null
 
       const slug = entry.replace(/[^a-zA-Z0-9._-]/g, '_').toLowerCase()
-      if (!slug) continue
+      if (!slug || this.getGame(slug)) return null
 
+      const [title, saveDir] = await Promise.all([
+        this.detectTitle(fullPath),
+        this.detectSaveDir(fullPath),
+      ])
+      return { slug, title: title || entry, saveDir: saveDir || '' }
+    }))
+
+    const created: string[] = []
+    for (const result of results) {
+      if (result.status !== 'fulfilled' || !result.value) continue
+      const { slug, title, saveDir } = result.value
       if (this.getGame(slug)) continue
-
-      const title = await this.detectTitle(fullPath) || entry
-      const saveDir = await this.detectSaveDir(fullPath) || ''
       this.createGame({ slug, title, tags: '[]', thumbnail: '', walkthrough: '', save_dir: saveDir })
       created.push(slug)
     }
@@ -229,7 +243,19 @@ export class Database {
   }
 
   async save(): Promise<void> {
-    const buf = this.db.export()
-    await writeFile(this.dbPath, buf)
+    return new Promise((resolve) => {
+      this.pendingSaveResolvers.push(resolve)
+      if (this.saveTimer) clearTimeout(this.saveTimer)
+      this.saveTimer = setTimeout(async () => {
+        this.saveTimer = null
+        const resolvers = this.pendingSaveResolvers.splice(0)
+        try {
+          const buf = this.db.export()
+          await writeFile(this.dbPath, buf)
+        } finally {
+          resolvers.forEach((r) => r())
+        }
+      }, 100)
+    })
   }
 }

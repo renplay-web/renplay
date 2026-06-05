@@ -26,8 +26,20 @@ export function createGamesRouter(db: Database): Router {
     const { title, tags } = req.body
 
     const updates: Partial<GameRow> = {}
-    if (title !== undefined) updates.title = title
-    if (tags !== undefined) updates.tags = JSON.stringify(Array.isArray(tags) ? tags : [])
+    if (title !== undefined) {
+      if (typeof title !== 'string' || title.trim().length === 0 || title.length > 255) {
+        res.status(400).json({ error: 'title must be a non-empty string under 255 characters' })
+        return
+      }
+      updates.title = title
+    }
+    if (tags !== undefined) {
+      if (!Array.isArray(tags) || tags.some((t) => typeof t !== 'string')) {
+        res.status(400).json({ error: 'tags must be an array of strings' })
+        return
+      }
+      updates.tags = JSON.stringify(tags)
+    }
 
     if (Object.keys(updates).length === 0) {
       res.status(400).json({ error: 'No fields to update' })

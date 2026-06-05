@@ -23,7 +23,7 @@ export function createSavesRouter(storage: FsStorage, db: Database): Router {
     res.json(data)
   })
 
-  function handlePut(req: any, res: any) {
+  async function handlePut(req: any, res: any) {
     const safeGame = req.params['gameId']!.replace(/[^a-zA-Z0-9._-]/g, '_')
     const saveDir = resolveSaveDir(safeGame)
 
@@ -33,9 +33,13 @@ export function createSavesRouter(storage: FsStorage, db: Database): Router {
       return
     }
 
-    storage.putSaves(saveDir, body).then(() => {
+    try {
+      await storage.putSaves(saveDir, body)
       res.json({ ok: true })
-    })
+    } catch (err) {
+      console.error('Failed to write saves:', err)
+      res.status(500).json({ error: 'Failed to save' })
+    }
   }
 
   router.put('/:gameId', handlePut)

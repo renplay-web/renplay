@@ -22,14 +22,13 @@ export default function AdminModal({ open, onClose, games, onChanged }: Props) {
   const walkthroughInputRef = useRef<HTMLInputElement>(null)
   const [orderedGames, setOrderedGames] = useState<Game[]>([])
   const [dragIdx, setDragIdx] = useState<number | null>(null)
-  const dragOverIdx = useRef<number | null>(null)
+  const [dragOverIdx, setDragOverIdx] = useState<number | null>(null)
+  const [confirmDeleteSlug, setConfirmDeleteSlug] = useState<string | null>(null)
   const [previewExtIdx, setPreviewExtIdx] = useState(0)
   const [previewFailed, setPreviewFailed] = useState(false)
 
   useEffect(() => {
-    if (open) {
-      setOrderedGames(games)
-    }
+    if (open) setOrderedGames(games)
   }, [games, open])
 
   useEffect(() => {
@@ -44,12 +43,20 @@ export default function AdminModal({ open, onClose, games, onChanged }: Props) {
       setForm({ title: '', tags: '' })
       setScanResult(null)
       setDragIdx(null)
-      dragOverIdx.current = null
+      setDragOverIdx(null)
+      setConfirmDeleteSlug(null)
       setPreviewExtIdx(0)
       setPreviewFailed(false)
       clearError()
     }
   }, [open, clearError])
+
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [open, onClose])
 
   const editingGame = editSlug ? games.find(g => g.slug === editSlug) ?? null : null
 
@@ -57,6 +64,7 @@ export default function AdminModal({ open, onClose, games, onChanged }: Props) {
     setEditSlug(g.slug)
     setEditing(gameToForm(g))
     setForm(gameToForm(g))
+    setConfirmDeleteSlug(null)
     clearError()
   }
 
@@ -77,9 +85,11 @@ export default function AdminModal({ open, onClose, games, onChanged }: Props) {
   }
 
   const handleDelete = async (slug: string) => {
-    if (!confirm(`Delete "${slug}"?`)) return
     const ok = await remove(slug)
-    if (ok) onChanged()
+    if (ok) {
+      setConfirmDeleteSlug(null)
+      onChanged()
+    }
   }
 
   const handleScan = async () => {
@@ -87,7 +97,7 @@ export default function AdminModal({ open, onClose, games, onChanged }: Props) {
     const result = await scan()
     if (result) {
       const n = result.created.length
-      setScanResult(n > 0 ? `Found ${n} new game(s): ${result.created.join(', ')}` : 'No new games found.')
+      setScanResult(n > 0 ? `Found ${n} new game${n !== 1 ? 's' : ''}: ${result.created.join(', ')}` : 'No new games found.')
       if (n > 0) onChanged()
     }
   }
@@ -124,21 +134,21 @@ export default function AdminModal({ open, onClose, games, onChanged }: Props) {
     if (ok) onChanged()
   }
 
-  // drag-and-drop
   const handleDragStart = (idx: number) => {
     setDragIdx(idx)
+    setConfirmDeleteSlug(null)
   }
 
   const handleDragOver = (e: React.DragEvent, idx: number) => {
     e.preventDefault()
-    dragOverIdx.current = idx
+    setDragOverIdx(prev => prev === idx ? prev : idx)
   }
 
   const handleDragEnd = async () => {
     const from = dragIdx
-    const to = dragOverIdx.current
+    const to = dragOverIdx
     setDragIdx(null)
-    dragOverIdx.current = null
+    setDragOverIdx(null)
     if (from === null || to === null || from === to) return
 
     const newOrder = [...orderedGames]
@@ -226,7 +236,7 @@ export default function AdminModal({ open, onClose, games, onChanged }: Props) {
                       <img
                         key={editingGame?.thumbnail ? 'custom' : `presplash-${previewExtIdx}`}
                         src={editingGame?.thumbnail ? `/api/thumbnails/${editingGame.thumbnail}` : `/play/${editSlug}/web-presplash.${PRESPLASH_EXTS[previewExtIdx]}`}
-                        alt=""
+                        alt={`Thumbnail for ${editingGame?.title}`}
                         className="w-full h-full object-cover"
                         onError={() => {
                           if (!editingGame?.thumbnail && previewExtIdx < PRESPLASH_EXTS.length - 1) {
@@ -321,7 +331,7 @@ export default function AdminModal({ open, onClose, games, onChanged }: Props) {
           </div>
         )}
 
-        <div className="space-y-2">
+        <div className="space-y-2 max-h-[28rem] overflow-y-auto pr-1">
           {orderedGames.length === 0 ? (
             <p className="py-8 text-center text-sm text-gray-500">
               No games found. Click "Scan for new games" after placing game files in the games directory.
@@ -337,8 +347,10 @@ export default function AdminModal({ open, onClose, games, onChanged }: Props) {
                 className={`flex items-center gap-3 rounded-xl border px-4 py-3 transition-colors ${
                   dragIdx === idx
                     ? 'border-indigo-500/50 bg-indigo-900/20 opacity-50'
+                    : dragOverIdx === idx && dragIdx !== idx
+                    ? 'border-indigo-400/60 bg-indigo-900/10'
                     : 'border-gray-800 bg-gray-800/30'
-                } ${dragOverIdx.current === idx && dragIdx !== idx ? 'border-t-indigo-400' : ''}`}
+                }`}
               >
                 <div className="flex flex-col gap-0.5 flex-shrink-0 cursor-grab active:cursor-grabbing">
                   <button
@@ -391,26 +403,47 @@ export default function AdminModal({ open, onClose, games, onChanged }: Props) {
                     {g.tags && g.tags.length > 0 && ` · ${g.tags.join(', ')}`}
                   </p>
                 </div>
-                <button
-                  onClick={() => startEdit(g)}
-                  className="rounded-lg p-2 text-gray-500 hover:bg-gray-700 hover:text-indigo-400 transition-colors"
-                  title="Edit"
-                  aria-label="Edit"
-                >
-                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                  </svg>
-                </button>
-                <button
-                  onClick={() => handleDelete(g.slug)}
-                  className="rounded-lg p-2 text-gray-500 hover:bg-gray-700 hover:text-red-400 transition-colors"
-                  title="Delete"
-                  aria-label="Delete"
-                >
-                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                  </svg>
-                </button>
+                {confirmDeleteSlug === g.slug ? (
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <span className="text-xs text-gray-400">Delete?</span>
+                    <button
+                      onClick={() => handleDelete(g.slug)}
+                      disabled={saving}
+                      className="rounded-lg border border-red-800/60 bg-red-900/30 px-2.5 py-1 text-xs font-medium text-red-300 hover:bg-red-900/50 transition-colors disabled:opacity-40"
+                    >
+                      Yes
+                    </button>
+                    <button
+                      onClick={() => setConfirmDeleteSlug(null)}
+                      className="rounded-lg border border-gray-700 px-2.5 py-1 text-xs text-gray-400 hover:bg-gray-700 hover:text-white transition-colors"
+                    >
+                      No
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => startEdit(g)}
+                      className="rounded-lg p-2 text-gray-500 hover:bg-gray-700 hover:text-indigo-400 transition-colors"
+                      title="Edit"
+                      aria-label="Edit"
+                    >
+                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                      </svg>
+                    </button>
+                    <button
+                      onClick={() => setConfirmDeleteSlug(g.slug)}
+                      className="rounded-lg p-2 text-gray-500 hover:bg-gray-700 hover:text-red-400 transition-colors"
+                      title="Delete"
+                      aria-label="Delete"
+                    >
+                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    </button>
+                  </>
+                )}
               </div>
             ))
           )}

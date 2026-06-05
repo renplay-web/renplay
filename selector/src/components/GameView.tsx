@@ -1,10 +1,11 @@
 import { useRef, useState, useEffect, useCallback } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import type { Game } from '../types'
 
 export default function GameView() {
   const { slug } = useParams<{ slug: string }>()
   const navigate = useNavigate()
+  const location = useLocation()
   const [loaded, setLoaded] = useState(false)
   const [iframeError, setIframeError] = useState(false)
   const [game, setGame] = useState<Game | null>(null)
@@ -40,11 +41,16 @@ export default function GameView() {
 
   useEffect(() => {
     if (!slug) return
+    const stateGame = (location.state as { game?: Game } | null)?.game
+    if (stateGame) {
+      setGame(stateGame)
+      return
+    }
     fetch(`/api/games/${encodeURIComponent(slug)}`)
       .then(res => res.json())
       .then(data => setGame(data.game))
       .catch(() => {})
-  }, [slug])
+  }, [slug, location.state])
 
   function toggleFullscreen() {
     if (document.fullscreenElement) {

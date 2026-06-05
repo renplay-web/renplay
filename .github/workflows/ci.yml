@@ -30,7 +30,6 @@ jobs:
       - name: Run server tests
         run: npx vitest run
         working-directory: server
-        continue-on-error: true
 
       - name: Install selector deps
         run: npm ci

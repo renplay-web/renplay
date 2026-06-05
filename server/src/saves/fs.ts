@@ -1,5 +1,5 @@
 import { readdir, readFile, writeFile, mkdir } from 'node:fs/promises'
-import { join, dirname } from 'node:path'
+import { join, dirname, relative, isAbsolute } from 'node:path'
 
 export interface SaveEntry {
   name: string
@@ -46,11 +46,13 @@ export class FsStorage {
 
   async putSaves(saveDir: string | null, data: SaveData): Promise<void> {
     const dir = saveDir || ''
-    for (const entry of data.entries) {
+    await Promise.all(data.entries.map(async (entry) => {
       const safe = entry.name.replace(/[^a-zA-Z0-9._\/-]/g, '_')
       const full = dir ? join(this.baseDir, dir, safe) : join(this.baseDir, safe)
+      const rel = relative(this.baseDir, full)
+      if (rel.startsWith('..') || isAbsolute(rel)) throw new Error('Path traversal detected')
       await mkdir(dirname(full), { recursive: true })
       await writeFile(full, Buffer.from(entry.data, 'base64'))
-    }
+    }))
   }
 }

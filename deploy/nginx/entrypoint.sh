@@ -16,9 +16,22 @@ envsubst '${GAMES_DIR} ${DATA_DIR}' < /etc/nginx/nginx.conf.template > /tmp/ngin
 node /app/server/dist/index.js &
 SERVER_PID=$!
 
-sleep 0.5
-if ! kill -0 "$SERVER_PID" 2>/dev/null; then
-  echo "server failed to start" >&2
+READY=0
+for i in $(seq 1 40); do
+  if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+    echo "server exited before becoming ready" >&2
+    exit 1
+  fi
+  if wget -q -O /dev/null http://127.0.0.1:3000/api/health 2>/dev/null; then
+    READY=1
+    break
+  fi
+  sleep 0.25
+done
+
+if [ "$READY" -eq 0 ]; then
+  echo "server failed to become ready after 10s" >&2
+  kill "$SERVER_PID" 2>/dev/null
   exit 1
 fi
 

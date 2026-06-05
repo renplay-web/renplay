@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import type { Game } from '../types'
 import { PRESPLASH_EXTS } from '../constants'
 
@@ -7,7 +8,6 @@ interface Props {
 }
 
 export default function GameCard({ game }: Props) {
-  const playUrl = `/play/${game.slug}`
   const [extIdx, setExtIdx] = useState(0)
   const [imgFailed, setImgFailed] = useState(false)
 
@@ -24,8 +24,9 @@ export default function GameCard({ game }: Props) {
   }
 
   return (
-    <a
-      href={playUrl}
+    <Link
+      to={`/play/${game.slug}`}
+      state={{ game }}
       className="group relative flex flex-col overflow-hidden rounded-xl bg-gray-800/60 backdrop-blur-sm border border-gray-700/50 transition-all duration-300 hover:scale-[1.03] hover:shadow-xl hover:shadow-indigo-500/10 hover:border-indigo-500/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-950"
     >
       <div className="aspect-[16/9] overflow-hidden bg-gray-900">
@@ -65,6 +66,6 @@ export default function GameCard({ game }: Props) {
       </div>
 
       <div className="absolute inset-0 rounded-xl ring-1 ring-inset ring-white/0 group-hover:ring-indigo-400/20 transition-all pointer-events-none" />
-    </a>
+    </Link>
   )
 }
