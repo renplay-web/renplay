@@ -31,7 +31,6 @@ COPY --from=builder /build/server/node_modules /app/server/node_modules
 
 COPY deploy/nginx/nginx.conf.template /etc/nginx/nginx.conf.template
 COPY deploy/nginx/sync-client.js /usr/share/nginx/html/selector/sync-client.js
-COPY deploy/nginx/safari-fix.js /usr/share/nginx/html/selector/safari-fix.js
 COPY deploy/nginx/entrypoint.sh /entrypoint.sh
 
 RUN chmod +x /entrypoint.sh
