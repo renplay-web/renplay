@@ -251,23 +251,64 @@
     if (!canvas) { setTimeout(initTouchBridge, 300); return; }
 
     canvas.style.touchAction = 'none';
+    if (!canvas.hasAttribute('tabindex')) canvas.tabIndex = -1;
+
+    // Focus the canvas before every pointer interaction.
+    // On macOS, the browser eats the first click/tap on an unfocused element to
+    // focus it. By focusing in capture phase (before SDL2 sees the event), the
+    // canvas is always focused when the actual mousedown arrives.
+    document.addEventListener('pointerdown', function () {
+      canvas.focus();
+    }, { capture: true, passive: true });
+
+    // Keep focus while the pointer is moving over the game area.
+    document.addEventListener('mousemove', function () {
+      if (document.activeElement !== canvas) canvas.focus();
+    }, { passive: true });
 
     var touchActive = false;
     var pointerActive = false;
 
+    // Dispatch both a PointerEvent and a MouseEvent.
+    // Modern Emscripten SDL2 (Ren'Py 8.x) registers pointerdown/pointerup
+    // handlers on the canvas and ignores mousedown/mouseup — so a MouseEvent
+    // alone is invisible to SDL2, which is why synthesised taps had no effect.
+    // Dispatching PointerEvent first (pointerType "mouse") makes SDL2 treat
+    // the synthesised input identically to a real trackpad click.
+    // The MouseEvent that follows covers older SDL2 builds and any game-level JS
+    // that still listens for mouse events directly.
+    var PMAP = { mousedown: 'pointerdown', mouseup: 'pointerup', mousemove: 'pointermove' };
     function synth(type, src, down) {
-      canvas.dispatchEvent(new MouseEvent(type, {
-        bubbles: true,
-        cancelable: true,
-        view: window,
-        clientX: src.clientX,
-        clientY: src.clientY,
-        screenX: src.screenX || 0,
-        screenY: src.screenY || 0,
-        button: 0,
-        buttons: down ? 1 : 0,
-      }));
+      var base = {
+        bubbles: true, cancelable: true, view: window,
+        clientX: src.clientX, clientY: src.clientY,
+        screenX: src.screenX || 0, screenY: src.screenY || 0,
+        button: 0, buttons: down ? 1 : 0,
+      };
+      var ptype = PMAP[type];
+      if (ptype) {
+        canvas.dispatchEvent(new PointerEvent(ptype, {
+          bubbles: true, cancelable: true, view: window,
+          clientX: src.clientX, clientY: src.clientY,
+          screenX: src.screenX || 0, screenY: src.screenY || 0,
+          button: 0, buttons: down ? 1 : 0,
+          pointerId: 1, pointerType: 'mouse', isPrimary: true,
+          pressure: down ? 0.5 : 0,
+        }));
+      }
+      canvas.dispatchEvent(new MouseEvent(type, base));
     }
+
+    // Intercept native touch-type pointer events before SDL2 sees them.
+    // Without this, SDL2 would receive SDL_FINGERDOWN *and* our synthesised
+    // SDL_MOUSEBUTTONDOWN, advancing dialogue twice.
+    // We stop propagation but NOT the default, so touchstart still fires
+    // and our touchstart handler below takes over.
+    function blockTouchPointer(e) {
+      if (e.pointerType !== 'mouse' && e.target === canvas) e.stopImmediatePropagation();
+    }
+    document.addEventListener('pointerdown', blockTouchPointer, { capture: true, passive: false });
+    document.addEventListener('pointerup',   blockTouchPointer, { capture: true, passive: false });
 
     // --- Touch event path (document capture, intercepts before SDL2) ---
     document.addEventListener('touchstart', function (e) {
