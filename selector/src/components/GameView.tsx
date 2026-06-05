@@ -10,27 +10,12 @@ export default function GameView() {
   const [iframeError, setIframeError] = useState(false)
   const [game, setGame] = useState<Game | null>(null)
   const fullscreenRef = useRef<HTMLDivElement>(null)
-  const iframeRef = useRef<HTMLIFrameElement>(null)
-
-  // Re-focus the iframe whenever the pointer re-enters it.
-  // On macOS, if the iframe lost focus (tab switch, address bar, etc.) the next
-  // tap refocuses the iframe but the browser swallows the event before it reaches
-  // the game canvas. Calling focus() on pointerenter ensures the iframe is already
-  // focused by the time the user taps, so the tap lands as a real click.
-  useEffect(() => {
-    const el = iframeRef.current
-    if (!el) return
-    const refocus = () => el.focus()
-    el.addEventListener('mouseenter', refocus)
-    el.addEventListener('pointerenter', refocus)
-    return () => {
-      el.removeEventListener('mouseenter', refocus)
-      el.removeEventListener('pointerenter', refocus)
-    }
-  }, [loaded])
 
   const handleBack = useCallback(() => {
-    iframeRef.current?.contentWindow?.postMessage({ type: 'renplay-save-now' }, '*')
+    const iframe = fullscreenRef.current?.querySelector('iframe')
+    if (iframe?.contentWindow) {
+      iframe.contentWindow.postMessage({ type: 'renplay-save-now' }, '*')
+    }
     setTimeout(() => navigate('/'), 300)
   }, [navigate])
 
@@ -104,12 +89,11 @@ export default function GameView() {
 
       <div ref={fullscreenRef} className="absolute inset-0 bg-black">
         <iframe
-          ref={iframeRef}
           src={`/play/${encodeURIComponent(slug)}/`}
           className="h-full w-full border-0"
           title={slug}
           allow="autoplay"
-          onLoad={() => { setLoaded(true); iframeRef.current?.focus() }}
+          onLoad={() => setLoaded(true)}
           onError={() => setIframeError(true)}
         />
       </div>

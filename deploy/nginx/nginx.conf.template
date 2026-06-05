@@ -67,7 +67,8 @@ http {
       add_header Cross-Origin-Opener-Policy "same-origin" always;
       add_header Cross-Origin-Embedder-Policy "require-corp" always;
 
-      sub_filter '</body>' '<script src="/api/saves/sync-client.js"></script></body>';
+      sub_filter '</head>' '<style>#canvas,#overlayDiv{cursor:pointer!important}#canvas{outline:none}</style></head>';
+      sub_filter '</body>' '<script>document.getElementById("canvas")?.removeAttribute("tabindex")</script><script src="/api/saves/sync-client.js"></script></body>';
       sub_filter_once on;
     }
 
