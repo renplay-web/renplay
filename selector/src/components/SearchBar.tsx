@@ -5,9 +5,9 @@ interface Props {
 
 export default function SearchBar({ value, onChange }: Props) {
   return (
-    <div className="relative w-full max-w-md">
+    <div className="relative">
       <svg
-        className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500"
+        className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-600"
         fill="none"
         viewBox="0 0 24 24"
         stroke="currentColor"
@@ -19,10 +19,10 @@ export default function SearchBar({ value, onChange }: Props) {
       <input
         id="game-search"
         type="text"
-        placeholder="Search games..."
+        placeholder="Search…"
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full rounded-xl border border-gray-700/50 bg-gray-800/60 py-3 pl-10 pr-4 text-sm text-white placeholder-gray-500 backdrop-blur-sm focus:border-indigo-500/50 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all"
+        className="w-full rounded-md border border-white/[0.08] bg-white/[0.04] py-1.5 pl-8 pr-3 text-sm text-gray-200 placeholder-gray-600 focus:border-indigo-500/40 focus:outline-none focus:ring-1 focus:ring-inset focus:ring-indigo-500/20 transition-all"
       />
     </div>
   )

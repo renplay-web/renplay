@@ -229,7 +229,7 @@ export default function AdminModal({ open, onClose, games, onChanged }: Props) {
               <div className="col-span-2">
                 <label className="block text-xs font-medium text-gray-500 mb-2">Thumbnail</label>
                 <div className="flex items-center gap-3">
-                  <div className="w-20 h-12 rounded-lg overflow-hidden bg-gray-900 flex-shrink-0 flex items-center justify-center">
+                  <div className="w-[92px] h-[43px] rounded overflow-hidden bg-gray-900 flex-shrink-0 flex items-center justify-center">
                     {previewFailed ? (
                       <span className="text-lg">🎮</span>
                     ) : (

@@ -10,12 +10,10 @@ export default function GameView() {
   const [iframeError, setIframeError] = useState(false)
   const [game, setGame] = useState<Game | null>(null)
   const fullscreenRef = useRef<HTMLDivElement>(null)
+  const iframeRef = useRef<HTMLIFrameElement>(null)
 
   const handleBack = useCallback(() => {
-    const iframe = fullscreenRef.current?.querySelector('iframe')
-    if (iframe?.contentWindow) {
-      iframe.contentWindow.postMessage({ type: 'renplay-save-now' }, '*')
-    }
+    iframeRef.current?.contentWindow?.postMessage({ type: 'renplay-save-now' }, '*')
     setTimeout(() => navigate('/'), 300)
   }, [navigate])
 
@@ -89,11 +87,12 @@ export default function GameView() {
 
       <div ref={fullscreenRef} className="absolute inset-0 bg-black">
         <iframe
+          ref={iframeRef}
           src={`/play/${encodeURIComponent(slug)}/`}
           className="h-full w-full border-0"
           title={slug}
           allow="autoplay"
-          onLoad={() => setLoaded(true)}
+          onLoad={() => { setLoaded(true); iframeRef.current?.focus() }}
           onError={() => setIframeError(true)}
         />
       </div>

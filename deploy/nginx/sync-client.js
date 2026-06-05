@@ -233,57 +233,107 @@
     }
   }, 200);
 
-  // Bridge touch events → mouse events so trackpad tap-to-click reaches SDL2.
-  // Ren'Py's Emscripten/SDL2 layer only registers mouse handlers on desktop UAs;
-  // calling e.preventDefault() on every touch event stops the browser from also
-  // firing synthetic mouse events, so there are no duplicate clicks.
+  // Bridge non-mouse pointer/touch input → synthetic mouse events for SDL2.
+  //
+  // Two separate paths cover the two browser behaviours on macOS:
+  //   • Chrome: trackpad tap → pointerdown (pointerType "mouse") → mousedown already
+  //     works natively once the iframe is pre-focused (handled in the parent page).
+  //   • Safari: trackpad tap → touchstart on the canvas (or pointerdown with
+  //     pointerType "touch") → SDL2 never sees a mousedown → game ignores the tap.
+  //
+  // Touch handlers run at document capture phase so they fire *before* SDL2's
+  // canvas-level handlers. stopImmediatePropagation() ensures SDL2 does not also
+  // process the raw touch event (which would cause double-clicks).
+  // The pointer bridge catches any remaining touch-type pointer events that arrive
+  // without a preceding touchstart (possible in some Safari versions).
   function initTouchBridge() {
     var canvas = document.querySelector('canvas');
     if (!canvas) { setTimeout(initTouchBridge, 300); return; }
 
-    var active = false;
+    canvas.style.touchAction = 'none';
 
-    function synth(type, touch, down) {
+    var touchActive = false;
+    var pointerActive = false;
+
+    function synth(type, src, down) {
       canvas.dispatchEvent(new MouseEvent(type, {
         bubbles: true,
         cancelable: true,
-        clientX: touch.clientX,
-        clientY: touch.clientY,
-        screenX: touch.screenX,
-        screenY: touch.screenY,
+        view: window,
+        clientX: src.clientX,
+        clientY: src.clientY,
+        screenX: src.screenX || 0,
+        screenY: src.screenY || 0,
         button: 0,
         buttons: down ? 1 : 0,
       }));
     }
 
-    canvas.addEventListener('touchstart', function (e) {
-      if (e.touches.length !== 1) return;
-      active = true;
+    // --- Touch event path (document capture, intercepts before SDL2) ---
+    document.addEventListener('touchstart', function (e) {
+      if (e.target !== canvas || e.touches.length !== 1) return;
+      touchActive = true;
+      pointerActive = false;
       canvas.focus();
       synth('mousemove', e.touches[0], true);
       synth('mousedown', e.touches[0], true);
+      e.stopImmediatePropagation();
       e.preventDefault();
-    }, { passive: false });
+    }, { passive: false, capture: true });
 
-    canvas.addEventListener('touchmove', function (e) {
-      if (!active || e.touches.length !== 1) return;
+    document.addEventListener('touchmove', function (e) {
+      if (e.target !== canvas || !touchActive || e.touches.length !== 1) return;
       synth('mousemove', e.touches[0], true);
+      e.stopImmediatePropagation();
       e.preventDefault();
-    }, { passive: false });
+    }, { passive: false, capture: true });
 
-    canvas.addEventListener('touchend', function (e) {
-      if (!active || e.changedTouches.length === 0) return;
-      active = false;
+    document.addEventListener('touchend', function (e) {
+      if (e.target !== canvas || !touchActive || e.changedTouches.length === 0) return;
+      touchActive = false;
       var t = e.changedTouches[0];
       synth('mouseup', t, false);
       synth('click', t, false);
+      e.stopImmediatePropagation();
+      e.preventDefault();
+    }, { passive: false, capture: true });
+
+    document.addEventListener('touchcancel', function (e) {
+      if (e.target !== canvas || !touchActive) return;
+      touchActive = false;
+      if (e.changedTouches.length > 0) synth('mouseup', e.changedTouches[0], false);
+      e.stopImmediatePropagation();
+    }, { passive: false, capture: true });
+
+    // --- Pointer event path (canvas-level, catches touch-type pointers in Safari) ---
+    // Skip if a touchstart already handled this gesture (touchActive guard).
+    canvas.addEventListener('pointerdown', function (e) {
+      if (e.pointerType === 'mouse' || !e.isPrimary || touchActive) return;
+      pointerActive = true;
+      canvas.focus();
+      synth('mousemove', e, true);
+      synth('mousedown', e, true);
       e.preventDefault();
     }, { passive: false });
 
-    canvas.addEventListener('touchcancel', function (e) {
-      if (!active || e.changedTouches.length === 0) return;
-      active = false;
-      synth('mouseup', e.changedTouches[0], false);
+    canvas.addEventListener('pointermove', function (e) {
+      if (e.pointerType === 'mouse' || !e.isPrimary || !pointerActive) return;
+      synth('mousemove', e, true);
+      e.preventDefault();
+    }, { passive: false });
+
+    canvas.addEventListener('pointerup', function (e) {
+      if (e.pointerType === 'mouse' || !e.isPrimary || !pointerActive) return;
+      pointerActive = false;
+      synth('mouseup', e, false);
+      synth('click', e, false);
+      e.preventDefault();
+    }, { passive: false });
+
+    canvas.addEventListener('pointercancel', function (e) {
+      if (e.pointerType === 'mouse' || !e.isPrimary || !pointerActive) return;
+      pointerActive = false;
+      synth('mouseup', e, false);
     }, { passive: false });
 
     console.log('[renplay] touch bridge active');
