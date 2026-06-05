@@ -40,8 +40,9 @@
 
   function uint8ToB64(arr) {
     var binary = '';
-    for (var i = 0; i < arr.length; i++) {
-      binary += String.fromCharCode(arr[i]);
+    var chunkSize = 0x8000;
+    for (var i = 0; i < arr.length; i += chunkSize) {
+      binary += String.fromCharCode.apply(null, arr.subarray(i, Math.min(i + chunkSize, arr.length)));
     }
     return btoa(binary);
   }
@@ -231,4 +232,62 @@
       downloadSaves();
     }
   }, 200);
+
+  // Bridge touch events → mouse events so trackpad tap-to-click reaches SDL2.
+  // Ren'Py's Emscripten/SDL2 layer only registers mouse handlers on desktop UAs;
+  // calling e.preventDefault() on every touch event stops the browser from also
+  // firing synthetic mouse events, so there are no duplicate clicks.
+  function initTouchBridge() {
+    var canvas = document.querySelector('canvas');
+    if (!canvas) { setTimeout(initTouchBridge, 300); return; }
+
+    var active = false;
+
+    function synth(type, touch, down) {
+      canvas.dispatchEvent(new MouseEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        clientX: touch.clientX,
+        clientY: touch.clientY,
+        screenX: touch.screenX,
+        screenY: touch.screenY,
+        button: 0,
+        buttons: down ? 1 : 0,
+      }));
+    }
+
+    canvas.addEventListener('touchstart', function (e) {
+      if (e.touches.length !== 1) return;
+      active = true;
+      canvas.focus();
+      synth('mousemove', e.touches[0], true);
+      synth('mousedown', e.touches[0], true);
+      e.preventDefault();
+    }, { passive: false });
+
+    canvas.addEventListener('touchmove', function (e) {
+      if (!active || e.touches.length !== 1) return;
+      synth('mousemove', e.touches[0], true);
+      e.preventDefault();
+    }, { passive: false });
+
+    canvas.addEventListener('touchend', function (e) {
+      if (!active || e.changedTouches.length === 0) return;
+      active = false;
+      var t = e.changedTouches[0];
+      synth('mouseup', t, false);
+      synth('click', t, false);
+      e.preventDefault();
+    }, { passive: false });
+
+    canvas.addEventListener('touchcancel', function (e) {
+      if (!active || e.changedTouches.length === 0) return;
+      active = false;
+      synth('mouseup', e.changedTouches[0], false);
+    }, { passive: false });
+
+    console.log('[renplay] touch bridge active');
+  }
+
+  initTouchBridge();
 })();

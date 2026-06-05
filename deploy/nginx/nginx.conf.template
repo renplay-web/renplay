@@ -23,7 +23,7 @@ http {
 
   gzip on;
   gzip_vary on;
-  gzip_types text/plain text/css application/javascript application/json image/svg+xml;
+  gzip_types text/plain text/css application/javascript application/json image/svg+xml application/wasm;
   gzip_min_length 1024;
   gzip_comp_level 6;
 
@@ -48,6 +48,8 @@ http {
     root /usr/share/nginx/html/selector;
 
     add_header X-Content-Type-Options "nosniff" always;
+    add_header Cross-Origin-Opener-Policy "same-origin" always;
+    add_header Cross-Origin-Embedder-Policy "require-corp" always;
 
     location / {
       try_files $uri $uri/ /index.html;
@@ -62,6 +64,8 @@ http {
       index index.html;
       add_header X-Content-Type-Options "nosniff" always;
       add_header Cache-Control $cache_control;
+      add_header Cross-Origin-Opener-Policy "same-origin" always;
+      add_header Cross-Origin-Embedder-Policy "require-corp" always;
 
       sub_filter '</body>' '<script src="/api/saves/sync-client.js"></script></body>';
       sub_filter_once on;
