@@ -67,8 +67,7 @@ http {
       add_header Cross-Origin-Opener-Policy "same-origin" always;
       add_header Cross-Origin-Embedder-Policy "require-corp" always;
 
-      sub_filter '</head>' '<style>#canvas,#overlayDiv{cursor:pointer!important}#canvas{outline:none}</style></head>';
-      sub_filter '</body>' '<script>document.getElementById("canvas")?.removeAttribute("tabindex")</script><script src="/api/saves/sync-client.js"></script></body>';
+      sub_filter '</body>' '<script src="/api/saves/safari-fix.js"></script><script>document.getElementById("canvas")?.removeAttribute("tabindex")</script><script src="/api/saves/sync-client.js"></script></body>';
       sub_filter_once on;
     }
 
@@ -89,6 +88,12 @@ http {
 
     location = /api/saves/sync-client.js {
       alias /usr/share/nginx/html/selector/sync-client.js;
+      add_header X-Content-Type-Options "nosniff" always;
+      add_header Cache-Control "no-cache";
+    }
+
+    location = /api/saves/safari-fix.js {
+      alias /usr/share/nginx/html/selector/safari-fix.js;
       add_header X-Content-Type-Options "nosniff" always;
       add_header Cache-Control "no-cache";
     }
