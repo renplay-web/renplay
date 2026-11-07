@@ -10,6 +10,8 @@ import type { Db, GameRow } from './db.js'
 import { MAX_IMAGE_PIXELS, PixelBudget } from './pipeline/image-memory.js'
 import { exists, writeFileAtomic } from './util/fsx.js'
 import { HttpError } from './util/paths.js'
+import { catalogHosts, fetchPublic } from './util/net.js'
+import { readLocalFile } from './recipes-local.js'
 
 /**
  * The art system (DESIGN 0.4). A game has five formats in SteamGridDB's shapes. The catalog links
@@ -355,6 +357,8 @@ export function needs2x(plan: Plan, meta: { width: number; height: number }, foc
 
 /** A failed download waits this long before the next try. */
 const RETRY_AFTER = 15 * 60_000
+/** Uploads kept per person (or for everyone), game and format. */
+const MAX_UPLOADS = 10
 /** Uploads up to this many pixels are taken and scaled down to what the making allows. */
 const UPLOAD_PIXELS = 4 * MAX_IMAGE_PIXELS
 
@@ -424,6 +428,29 @@ export class ArtStore {
   /** The scope a choice is read for: the person, then everyone. */
   private viewerScope(): number {
     return viewer()?.user.id ?? EVERYONE
+  }
+
+  /** Deletes an upload and the choices of it. Its file goes with the next clean-up once nothing uses it. */
+  removeUpload(game: string, kind: ArtKind, id: string, scope: number): boolean {
+    const gone = this.db.raw.prepare('DELETE FROM art_uploads WHERE id = ? AND game = ? AND kind = ? AND scope = ?').run(id, game, kind, scope).changes > 0
+    if (!gone) return false
+    // A picture uploaded for everyone may be anyone's choice. A personal one only its owner's.
+    if (scope === EVERYONE) this.db.raw.prepare('DELETE FROM art_choices WHERE game = ? AND kind = ? AND candidate = ?').run(game, kind, id)
+    else this.db.raw.prepare('DELETE FROM art_choices WHERE game = ? AND kind = ? AND candidate = ? AND scope = ?').run(game, kind, id, scope)
+    return true
+  }
+
+  /** A game forgotten: its choices and uploads go, their files with the next clean-up. */
+  forgetGame(game: string): void {
+    this.db.raw.prepare('DELETE FROM art_choices WHERE game = ?').run(game)
+    this.db.raw.prepare('DELETE FROM art_uploads WHERE game = ?').run(game)
+  }
+
+  /** A person removed: their own choices and uploads go. Choices for everyone stay. */
+  forgetPerson(id: number): void {
+    if (id === EVERYONE) return
+    this.db.raw.prepare('DELETE FROM art_choices WHERE scope = ?').run(id)
+    this.db.raw.prepare('DELETE FROM art_uploads WHERE scope = ?').run(id)
   }
 
   /** True when an upload was made for everyone. */
@@ -504,7 +531,7 @@ export class ArtStore {
    * Every candidate for one format, each made at the format's size by the same pipeline, so what
    * the picker shows is what the tile will be. For a person at Shown only.
    */
-  async candidates(subject: ArtSubject, kind: ArtKind, scope: number): Promise<Array<{ id: string; current: boolean; everyone: boolean; mine: boolean; inShape: boolean; width: number; height: number; source: string; credit: Credit; upload: boolean; preview: ArtOut | null }>> {
+  async candidates(subject: ArtSubject, kind: ArtKind, scope: number): Promise<Array<{ id: string; current: boolean; everyone: boolean; mine: boolean; inShape: boolean; width: number; height: number; source: string; credit: Credit; upload: boolean; ownUpload: boolean; sharedUpload: boolean; preview: ArtOut | null }>> {
     const chosen = this.chosen(subject, scope)
     // For everyone: only what an admin chose for everyone, not the catalog default.
     const everyone = subject.game ? (this.db.raw.prepare('SELECT candidate FROM art_choices WHERE game = ? AND kind = ? AND scope = 0').get(subject.game, kind) as { candidate: string } | undefined)?.candidate : undefined
@@ -518,7 +545,8 @@ export class ArtStore {
         const row = await this.ensure(plan, subject.adult).catch(() => null)
         if (row) preview = { url1x: `/api/art/${row.file1x}`, url2x: `/api/art/${row.file2x}`, width: row.width, height: row.height, thumbhash: row.thumbhash, tint: row.tint, made: MADE[plan.mode], source: p.source, credit: p.credit }
       }
-      return { id: p.id, current: chosen[kind]?.id === p.id, everyone: everyone === p.id, mine: choice === p.id, inShape: p.width > 0 && inShape(kind, p), width: p.width, height: p.height, source: p.source, credit: p.credit, upload: p.upload, preview }
+      const uploadAt = (s: number) => !!(p.upload && subject.game && this.db.raw.prepare('SELECT 1 FROM art_uploads WHERE id = ? AND game = ? AND kind = ? AND scope = ?').get(p.id, subject.game, kind, s))
+      return { id: p.id, current: chosen[kind]?.id === p.id, everyone: everyone === p.id, mine: choice === p.id, inShape: p.width > 0 && inShape(kind, p), width: p.width, height: p.height, source: p.source, credit: p.credit, upload: p.upload, ownUpload: scope !== EVERYONE && uploadAt(scope), sharedUpload: uploadAt(EVERYONE), preview }
     }))
   }
 
@@ -561,6 +589,8 @@ export class ArtStore {
       meta = await sharp(data, { failOn: 'error', limitInputPixels: MAX_IMAGE_PIXELS }).metadata()
     }
     const id = createHash('sha256').update(data).digest('hex')
+    const kept = this.db.raw.prepare('SELECT COUNT(*) n FROM art_uploads WHERE game = ? AND kind = ? AND scope = ? AND id != ?').get(game, kind, scope, id) as { n: number }
+    if (kept.n >= MAX_UPLOADS) throw new HttpError(409, `You can keep ${MAX_UPLOADS} pictures of each kind for a game. Delete one of them first.`)
     await mkdir(this.sources, { recursive: true })
     const path = join(this.sources, id)
     if (!(await exists(path))) await writeFileAtomic(path, data)
@@ -656,10 +686,23 @@ export class ArtStore {
     const path = join(this.sources, p.id)
     if (await exists(path)) return readFile(path)
     if (p.upload || !p.url) throw new Error('the uploaded picture is gone')
+    if (p.url.startsWith('local:')) {
+      // A picture in Your recipes: read from the folder and checked like a download.
+      const data = await readLocalFile(this.cfg.recipesDir, p.url)
+      if (data.length > MAX_SOURCE_BYTES || !isImage(data)) throw new Error('not a WebP, PNG, JPEG or GIF picture under 16 MB')
+      if (p.sha256 && p.sha256 !== createHash('sha256').update(data).digest('hex')) throw new Error('the picture changed since the recipes were read')
+      await mkdir(this.sources, { recursive: true })
+      await writeFileAtomic(path, data)
+      return data
+    }
     const url = new URL(p.url, p.base)
-    if (url.protocol !== 'https:' && url.protocol !== 'http:') throw new Error('not an http(s) address')
     // Uncompressed, and read only up to the limit: a small compressed answer cannot grow in memory.
-    const res = await fetch(url, { signal: AbortSignal.timeout(30_000), headers: { 'user-agent': 'Renplay (https://renplay.org)', 'accept-encoding': 'identity' } })
+    // Only from the public internet (or the catalog's own host), redirects included.
+    const res = await fetchPublic(url, {
+      signal: AbortSignal.timeout(30_000),
+      headers: { 'user-agent': 'Renplay (https://renplay.org)', 'accept-encoding': 'identity' },
+      allowHosts: catalogHosts(this.cfg.catalogUrls ?? []),
+    })
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     const encoding = res.headers.get('content-encoding')
     if (encoding && encoding !== 'identity') throw new Error('the picture was sent compressed')

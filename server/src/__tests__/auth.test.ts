@@ -231,9 +231,77 @@ describe('accounts authentication and security', () => {
     await request(a.app).post('/api/auth/login').set(site).send({ username: 'admin', password: 'bad' }).expect(429)
     expect(a.app.get('trust proxy')).toBe(1)
   })
+  it('switches a browser to someone who signed in on it, by their PIN, never to an admin, and locks after five wrong PINs', async () => {
+    const a = await start(), admin = await login(a)
+    const anna = await add(a, admin, 'anna'), benId = await add(a, admin, 'ben')
+    await request(a.app).put('/api/me/pin').set(site).set('Cookie', admin).send({ pin: '1234' }).expect(409)
+    // A browser: its own cookie stays through sign-ins and switches. Each call comes from its own address.
+    let ip = 0
+    const from = () => ({ ...site, 'X-Forwarded-For': `10.0.0.${++ip}` })
+    const signIn = async (username: string, device = '') => {
+      const res = await request(a.app).post('/api/auth/login').set(from()).set('Cookie', device).send({ username, password: username === 'admin' ? 'correct password' : 'player password' }).expect(200)
+      const cookies = ([] as string[]).concat(res.headers['set-cookie']).map((c) => c.split(';')[0]!)
+      const session = cookies.find((c) => c.startsWith('renplay_session='))!
+      const browser = cookies.find((c) => c.startsWith('renplay_device=')) ?? device
+      return { session, browser, both: `${session}; ${browser}` }
+    }
+    const annaHere = await signIn('anna'), browser = annaHere.browser
+    expect(browser).toMatch(/^renplay_device=.{40,}/)
+    await request(a.app).put('/api/me/pin').set(site).set('Cookie', annaHere.both).send({ pin: '12a4' }).expect(400)
+    await request(a.app).put('/api/me/pin').set(site).set('Cookie', annaHere.both).send({ pin: '2468' }).expect(200)
+    const me = (await request(a.app).get('/api/me').set('Cookie', annaHere.both).expect(200)).body.user
+    expect(me).toMatchObject({ hasPin: true })
+    expect(JSON.stringify(me)).not.toMatch(/pin_hash|scrypt/)
+    expect(JSON.stringify((await request(a.app).get('/api/users').set('Cookie', admin).expect(200)).body)).not.toMatch(/pin_hash|scrypt/)
+    // An access token cannot set a PIN.
+    const { token } = (await request(a.app).post('/api/me/tokens').set(site).set('Cookie', annaHere.both).send({ name: 'phone' }).expect(200)).body
+    await request(a.app).put('/api/me/pin').set('Authorization', `Bearer ${token}`).send({ pin: '1111' }).expect(403)
+    // Only with a session, and only people who signed in on this browser, have a PIN and are not admins.
+    await request(a.app).get('/api/auth/switch').expect(401)
+    await signIn('admin', browser)
+    const ben = await signIn('ben', browser)
+    const listed = async (cookie: string) => (await request(a.app).get('/api/auth/switch').set('Cookie', cookie).expect(200)).body.people.map((p: { id: number }) => p.id)
+    expect(await listed(ben.both)).toEqual([anna])
+    // A browser where Anna never signed in lists nobody, and her PIN does not work there.
+    const elsewhere = await signIn('ben')
+    expect(elsewhere.browser).not.toBe(browser)
+    expect(await listed(elsewhere.both)).toEqual([])
+    const refused = await request(a.app).post('/api/auth/switch').set(from()).set('Cookie', elsewhere.both).send({ user: anna, pin: '2468' }).expect(403)
+    // An admin, someone missing and a wrong PIN all get the same answer.
+    for (const user of [1, 999]) expect((await request(a.app).post('/api/auth/switch').set(from()).set('Cookie', ben.both).send({ user, pin: '1234' }).expect(403)).body).toEqual(refused.body)
+    // Tries sent at the same time count before they are checked: four wrong ones answer, the rest are locked out.
+    const tries = await Promise.all(Array.from({ length: 8 }, () => request(a.app).post('/api/auth/switch').set(from()).set('Cookie', ben.both).send({ user: anna, pin: '0000' })))
+    expect(tries.map((r) => r.status).sort()).toEqual([403, 403, 403, 403, 429, 429, 429, 429])
+    expect(tries.find((r) => r.status === 403)!.body).toEqual(refused.body)
+    await request(a.app).post('/api/auth/switch').set(from()).set('Cookie', ben.both).send({ user: anna, pin: '2468' }).expect(429)
+    a.db.raw.prepare('UPDATE users SET pin_locked_until = 0 WHERE id = ?').run(anna)
+    const switched = await request(a.app).post('/api/auth/switch').set(from()).set('Cookie', ben.both).send({ user: anna, pin: '2468' }).expect(200)
+    const sessions = ([] as string[]).concat(switched.headers['set-cookie'] ?? []).map((c) => c.split(';')[0]!).filter((c) => c.startsWith('renplay_session='))
+    // A browser keeps the last cookie of a name: the new person's must come last.
+    const annaAgain = sessions[sessions.length - 1]!
+    expect(annaAgain).not.toBe(ben.session)
+    expect((await request(a.app).get('/api/me').set('Cookie', `${annaAgain}; ${browser}`).expect(200)).body.user.username).toBe('anna')
+    // Ben is signed out on this browser, and still listed in it for switching back.
+    await request(a.app).get('/api/me').set('Cookie', ben.both).expect(401)
+    // Clearing the PIN takes the person off every switch list.
+    await request(a.app).put('/api/me/pin').set(site).set('Cookie', `${annaAgain}; ${browser}`).send({ pin: '' }).expect(200)
+    const benAgain = await signIn('ben', browser)
+    expect(await listed(benAgain.both)).toEqual([])
+    // Signing out everywhere clears the PIN and makes other browsers forget the person.
+    const annaThere = await signIn('anna', elsewhere.browser)
+    await request(a.app).put('/api/me/pin').set(site).set('Cookie', annaThere.both).send({ pin: '1357' }).expect(200)
+    expect(await listed(benAgain.both)).toEqual([anna])
+    await request(a.app).delete('/api/me/sessions').set(site).set('Cookie', annaThere.both).expect(200)
+    expect((await request(a.app).get('/api/me').set('Cookie', annaThere.both).expect(200)).body.user.hasPin).toBe(false)
+    await request(a.app).put('/api/me/pin').set(site).set('Cookie', annaThere.both).send({ pin: '1357' }).expect(200)
+    expect(await listed(benAgain.both)).toEqual([])
+    expect(await listed((await signIn('ben', elsewhere.browser)).both)).toEqual([anna])
+    expect(benId).toBeGreaterThan(anna)
+  })
+
   it('maps all management route families to admins and keeps the last admin', async () => {
     const a = await start(), admin = await login(a), id = await add(a, admin), player = await login(a, 'player', 'player password'); game(a)
-    const routes: [string, string][] = [['get', '/api/archives'], ['post', '/api/archives/inspect'], ['post', '/api/archives/hash'], ['delete', '/api/archives'], ['post', '/api/imports'], ['post', '/api/uploads'], ['get', '/api/uploads/u1'], ['put', '/api/uploads/u1'], ['post', '/api/uploads/u1/complete'], ['delete', '/api/uploads/u1'], ['get', '/api/games/safe/files'], ['put', '/api/games/safe/files/raw'], ['delete', '/api/games/safe/files/raw'], ['get', '/api/games/safe/files/raw'], ['post', '/api/games/safe/files/upload'], ['post', '/api/games/safe/files/revert'], ['post', '/api/games/safe/files/apply'], ['post', '/api/games/safe/files/reset'], ['delete', '/api/games/safe'], ['post', '/api/games/safe/reinstall'], ['post', '/api/games/safe/walkthroughs'], ['delete', '/api/games/safe/walkthroughs/safe.pdf'], ['put', '/api/games/safe/cache'], ['get', '/api/games/safe/recipe'], ['get', '/api/system'], ['post', '/api/system/prune'], ['post', '/api/system/engines/refresh'], ['get', '/api/jobs'], ['get', '/api/jobs/j1/log'], ['post', '/api/jobs/j1/cancel'], ['post', '/api/jobs/j1/retry'], ['delete', '/api/jobs'], ['post', '/api/catalog/refresh'], ['put', '/api/content'], ['get', '/api/users'], ['post', '/api/users'], ['put', `/api/users/${id}`], ['delete', `/api/users/${id}`], ['post', `/api/users/${id}/password`], ['post', `/api/users/${id}/merge`], ['post', `/api/users/${id}/saves/copy`], ['get', `/api/users/${id}/saves/export`], ['post', `/api/users/${id}/saves/import`], ['post', '/api/games/safe/safe'], ['get', '/api/system/backups'], ['post', '/api/system/backups'], ['get', '/api/system/backups/saves-2026-01-01-000000.zip'], ['put', '/api/system/sync']]
+    const routes: [string, string][] = [['get', '/api/archives'], ['post', '/api/archives/inspect'], ['post', '/api/archives/hash'], ['delete', '/api/archives'], ['post', '/api/imports'], ['post', '/api/uploads'], ['get', '/api/uploads/u1'], ['put', '/api/uploads/u1'], ['post', '/api/uploads/u1/complete'], ['delete', '/api/uploads/u1'], ['get', '/api/games/safe/files'], ['put', '/api/games/safe/files/raw'], ['delete', '/api/games/safe/files/raw'], ['get', '/api/games/safe/files/raw'], ['post', '/api/games/safe/files/upload'], ['post', '/api/games/safe/files/revert'], ['post', '/api/games/safe/files/apply'], ['post', '/api/games/safe/files/reset'], ['delete', '/api/games/safe'], ['post', '/api/games/safe/reinstall'], ['post', '/api/games/safe/walkthroughs'], ['delete', '/api/games/safe/walkthroughs/safe.pdf'], ['put', '/api/games/safe/cache'], ['get', '/api/games/safe/recipe'], ['get', '/api/system'], ['post', '/api/system/prune'], ['post', '/api/system/engines/refresh'], ['get', '/api/jobs'], ['get', '/api/jobs/j1/log'], ['post', '/api/jobs/j1/cancel'], ['post', '/api/jobs/j1/retry'], ['delete', '/api/jobs'], ['post', '/api/catalog/refresh'], ['put', '/api/content'], ['get', '/api/users'], ['post', '/api/users'], ['put', `/api/users/${id}`], ['delete', `/api/users/${id}`], ['post', `/api/users/${id}/password`], ['post', `/api/users/${id}/merge`], ['post', `/api/users/${id}/saves/copy`], ['get', `/api/users/${id}/saves/export`], ['post', `/api/users/${id}/saves/import`], ['post', '/api/games/safe/safe'], ['get', '/api/system/backups'], ['post', '/api/system/backups'], ['get', '/api/system/backups/saves-2026-01-01-000000.zip'], ['put', '/api/system/sync'], ['get', '/api/metrics'], ['get', '/api/system/storage'], ['put', '/api/defaults']]
     for (const [method, path] of routes) {
       expect(playerRoute(method.toUpperCase(), path), path).toBe(false)
       await (request(a.app) as any)[method](path).set(site).set('Cookie', player).expect(403)
@@ -245,6 +313,11 @@ describe('accounts authentication and security', () => {
     // A player imports their own saves from a computer.
     expect(playerRoute('GET', '/api/saves-import') && playerRoute('POST', '/api/saves-import')).toBe(true)
     expect((await request(a.app).get('/api/saves-import').set('Cookie', player).expect(200)).body).toHaveProperty('dirs')
+    expect((await request(a.app).get('/api/widget').set('Cookie', player).expect(200)).body).toHaveProperty('recent')
+    // Where Your recipes live on the server is for admins.
+    const folder = async (cookie: string) => (await request(a.app).get('/api/catalog').set('Cookie', cookie).expect(200)).body.status.sources.find((s: { kind: string }) => s.kind === 'folder').location
+    expect(await folder(player)).toBe('')
+    expect(await folder(admin)).toMatch(/recipes$/)
     await request(a.app).put('/api/games/safe/favorite').set(site).set('Cookie', player).send({ on: true }).expect(200)
   })
 })
@@ -259,7 +332,7 @@ describe('personal data and save moves', () => {
     const section = (from: string, to: string) => source.slice(source.indexOf(from), source.indexOf(to, source.indexOf(from)))
     const runtime = (userId: number, cookie: string) => new Function('window', 'indexedDB', 'cfg', 'fetchJSON', 'fetch', 'setTimeout', `
       var API = '/api/saves/safe', signedOut = false, HOME = '/home';
-      var state = { queue: new Map(), known: new Map(), lazy: new Map(), base: new Map(), online: true, inflight: false, failures: 0 };
+      var state = { queue: new Map(), known: new Map(), lazy: new Map(), base: new Map(), unanswered: new Map(), online: true, inflight: false, failures: 0 };
       function post() {} function status() {} function log() {} function writeLocal() {} function createLazy() {}
       function hash(bytes) { return String(bytes) } function b64ToBytes(data) { return new Uint8Array() }
       ${section('  var dbPromise = null', '  // ---------------------------------------------------------------- helpers')}

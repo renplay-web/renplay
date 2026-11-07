@@ -4,16 +4,17 @@ import { useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import RecipeDialog from '../components/RecipeDialog'
 import DocsLink from '../components/DocsLink'
-import { Button, Confirm, Progress, Spinner, errorText, useToast } from '../components/ui'
+import { Button, Confirm, Modal, Progress, Spinner, errorText, useToast } from '../components/ui'
 import { LevelSeg, DeviceAdultRow } from '../components/AdultLadder'
-import { SourceLabel, LanternSwitch } from '../lantern/controls'
+import { Seg, SourceLabel, LanternSwitch } from '../lantern/controls'
+import CatalogTags from '../components/CatalogTags'
 import { useRoom } from '../lantern/Room'
-import { api, post, put } from '../lib/api'
+import { api, del, post, put, type CatalogSource, type SystemInfo } from '../lib/api'
 import { setLighterBackground, useLighterBackground } from '../lib/backdrop'
 import { ago, bytes } from '../lib/format'
 import { useAuth } from '../lib/auth'
 import { adultLabels, adultLevels, type AdultLevel } from '../lib/adult'
-import { useCatalog, useContent, useGames, useSetInstallationLevel, useSystem } from '../lib/queries'
+import { useCatalog, useContent, useDefaults, useGames, useSetInstallationLevel, useSystem, type Defaults } from '../lib/queries'
 
 function DiskBar({ label, disk }: { label: string; disk: { total: number; free: number } | null }) {
   if (!disk) return null
@@ -70,13 +71,13 @@ function BrowserSettings() {
 }
 
 function LighterBackground() {
-  const { on, chosen } = useLighterBackground()
+  const { on, from } = useLighterBackground()
   return (
     <Setting
       title="Lighter background"
       hint="A plain background instead of the game’s art behind each screen. It uses less data and battery. Until you choose, it follows this device’s reduced motion and data saver settings."
       inline
-      source={<SourceLabel kind={chosen ? 'here' : 'def'} />}
+      source={<SourceLabel kind={from === 'chosen' ? 'here' : from === 'admin' ? 'admin' : 'def'} />}
     >
       <LanternSwitch checked={on} label="Lighter background" onChange={setLighterBackground} />
     </Setting>
@@ -116,6 +117,7 @@ function AdminSettings({ auth, userName }: { auth: boolean; userName: string }) 
   const [recipeFor, setRecipeFor] = useState('')
   const recipeGame = installed.find((g) => g.id === recipeFor)
   const [recipeOpen, setRecipeOpen] = useState(false)
+  const [storageOpen, setStorageOpen] = useState(false)
   const qc = useQueryClient()
   const toast = useToast()
   const { data: content } = useContent()
@@ -150,7 +152,11 @@ function AdminSettings({ auth, userName }: { auth: boolean; userName: string }) 
           <div className={section === 'general' ? 'stack' : 'hidden'} style={{ gap: 18 }}>
             {!auth && (
               <section className="panel">
-                <Setting title="Sign-in is off" hint={`Everyone who opens this address plays as ${userName}. That is fine on a private network. Turn it on when more people or the internet can reach it.`}>
+                <Setting
+                  title="Sign-in is off"
+                  hint={`Everyone who opens this address plays as ${userName}. That is fine on a private network. Turn it on when more people or the internet can reach it.`}
+                  source={sys?.setBy?.['RENPLAY_AUTH'] === 'server' ? <SourceLabel kind="server" label="RENPLAY_AUTH" /> : <SourceLabel kind="def" />}
+                >
                   <Button size="sm" onClick={() => window.open('https://renplay.org/docs/accounts/', '_blank', 'noreferrer')}>
                     How to turn it on
                   </Button>
@@ -217,17 +223,33 @@ function AdminSettings({ auth, userName }: { auth: boolean; userName: string }) 
                   <p className="small muted">
                     {sys.library.installed} of {sys.library.games} games installed, {bytes(sys.library.bytes)} in total.
                   </p>
+                  <div>
+                    <Button size="sm" onClick={() => setStorageOpen(true)}>
+                      Show what uses space
+                    </Button>
+                  </div>
                   <div className="stack xs muted" style={{ gap: 4, overflowWrap: 'anywhere' }}>
-                    <div>Games <code>{sys.paths.games}</code></div>
-                    <div>Downloads <code>{sys.paths.archives}</code></div>
-                    <div>Data <code>{sys.paths.data}</code></div>
+                    {(
+                      [
+                        ['Games', sys.paths.games, 'GAMES_DIR'],
+                        ['Downloads', sys.paths.archives, 'ARCHIVES_DIR'],
+                        ['Data', sys.paths.data, 'DATA_DIR'],
+                      ] as const
+                    ).map(([name, path, variable]) => (
+                      <div key={name} className="row wrap" style={{ gap: 8 }}>
+                        <span>
+                          {name} <code>{path}</code>
+                        </span>
+                        {setBy(sys, variable)}
+                      </div>
+                    ))}
                   </div>
                 </div>
                 <Setting
                   title="Keep downloads"
                   hint="Keep downloads so games can be reinstalled. Off deletes only uploads through Renplay after a successful install. Files copied in are never deleted automatically."
                   inline
-                  source={sys.keepDownloadsLocked ? <SourceLabel kind="server" /> : <SourceLabel kind="here" />}
+                  source={sys.keepDownloadsLocked ? <SourceLabel kind="server" label="RENPLAY_KEEP_DOWNLOADS" /> : <SourceLabel kind={sys.keepDownloadsChosen ? 'here' : 'def'} />}
                 >
                   {!sys.keepDownloadsLocked ? (
                     <LanternSwitch checked={sys.keepDownloads} label="Keep downloads" onChange={(on) => void run(() => put('/api/system/downloads', { keepDownloads: on }), 'Download preference saved')} />
@@ -288,7 +310,7 @@ function AdminSettings({ auth, userName }: { auth: boolean; userName: string }) 
                     title="Sync codes"
                     hint="Let people move a game’s saves to and from desktop or Android Ren’Py with a code, as Ren’Py’s own Upload Sync and Download Sync do. Saves leave this server only when someone asks for a code, encrypted, to Ren’Py’s sync server, which keeps them for an hour."
                     inline
-                    source={<SourceLabel kind="here" />}
+                    source={<SourceLabel kind={sys.sync.chosen ? 'here' : 'def'} />}
                   >
                     <LanternSwitch checked={sys.sync.on} label="Sync codes" onChange={(on) => void run(() => put('/api/system/sync', { on }), on ? 'Sync codes are on' : 'Sync codes are off')} />
                   </Setting>
@@ -302,6 +324,7 @@ function AdminSettings({ auth, userName }: { auth: boolean; userName: string }) 
               <p className="small muted">
                 Titles, art and install settings come from {catalog?.status.count ?? 0} recipes in the catalog{catalog?.status.fetchedAt ? `, updated ${ago(catalog.status.fetchedAt, true)}` : ''}.
               </p>
+              {catalog?.status.sources && <CatalogSources sources={catalog.status.sources} label={(s) => setBy(sys, s.kind === 'folder' ? 'RENPLAY_RECIPES_DIR' : 'RENPLAY_CATALOG_URLS')} />}
               <div className="actions" style={{ marginTop: 12 }}>
                 <Button size="sm" icon={<RefreshCw />} onClick={() => run(() => post('/api/catalog/refresh'), 'Catalog refreshed')}>
                   Refresh catalog
@@ -312,7 +335,7 @@ function AdminSettings({ auth, userName }: { auth: boolean; userName: string }) 
               </div>
               {installed.length > 0 && (
                 <div style={{ borderTop: '1px solid var(--line)', marginTop: 14, paddingTop: 14 }}>
-                  <p className="small muted" style={{ marginBottom: 10 }}>Add a game to the catalog: export a recipe filled in from its installation, then open a pull request.</p>
+                  <p className="small muted" style={{ marginBottom: 10 }}>Add a game to the catalog: export a recipe filled in from its installation, then open a pull request, or keep it in Your recipes.</p>
                   <div className="actions">
                     <select aria-label="Choose a game" value={recipeFor} onChange={(e) => setRecipeFor(e.target.value)} className="input" style={{ maxWidth: 280 }}>
                       <option value="">Choose a game</option>
@@ -330,7 +353,10 @@ function AdminSettings({ auth, userName }: { auth: boolean; userName: string }) 
               )}
             </section>
 
+            <DefaultsForEveryone />
+
             {recipeOpen && recipeGame && <RecipeDialog game={recipeGame} onClose={() => setRecipeOpen(false)} />}
+            {storageOpen && <StorageSheet onClose={() => setStorageOpen(false)} />}
           </div>
           <section className={`${section === 'browser' ? '' : 'hidden'} panel stack`} style={{ gap: 14 }}>
             <h2 className="h3">This browser</h2>
@@ -371,12 +397,18 @@ interface BackupInfo {
   error: string | null
 }
 
+/** Where a server setting comes from: its variable on the server, or the default. */
+function setBy(sys: SystemInfo | undefined, variable: string) {
+  return sys?.setBy?.[variable] === 'server' ? <SourceLabel kind="server" label={variable} /> : <SourceLabel kind="def" />
+}
+
 /** Save backups: a daily zip of everyone's saves, the last few kept, and Back up now. */
 function SaveBackups() {
   const qc = useQueryClient()
   const toast = useToast()
   const [busy, setBusy] = useState(false)
   const { data } = useQuery({ queryKey: ['backups'], queryFn: () => api<BackupInfo>('/api/system/backups') })
+  const { data: sys } = useSystem()
   if (!data) return null
   const now = async () => {
     setBusy(true)
@@ -393,6 +425,7 @@ function SaveBackups() {
   return (
     <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--line)' }} className="stack">
       <h3 style={{ fontWeight: 650 }}>Daily backups</h3>
+      {setBy(sys, 'RENPLAY_BACKUP_DIR')}
       {data.dir ? (
         <>
           <p className="small muted">
@@ -425,5 +458,254 @@ function SaveBackups() {
         <p className="small muted">Save backups are off. Set RENPLAY_BACKUP_DIR to a folder to turn them on.</p>
       )}
     </div>
+  )
+}
+
+/** Where recipes come from: each catalog, then Your recipes, with what each gives this person. */
+function CatalogSources({ sources, label }: { sources: CatalogSource[]; label: (s: CatalogSource) => ReactNode }) {
+  const name = (s: CatalogSource) => {
+    if (s.kind === 'folder') return 'Your recipes'
+    try {
+      const u = new URL(s.location)
+      return u.hostname === 'catalog.renplay.org' ? 'The Renplay catalog' : u.hostname
+    } catch {
+      return s.location
+    }
+  }
+  return (
+    <div className="list tight" style={{ marginTop: 12 }}>
+      {sources.map((s) => (
+        <div key={s.kind + s.location} className="stack" style={{ gap: 4, padding: '8px 0' }}>
+          <div className="row between wrap" style={{ gap: 8 }}>
+            <span style={{ fontWeight: 600 }}>{name(s)}</span>
+            <span className="small muted tnum">
+              {s.recipes} {s.recipes === 1 ? 'recipe' : 'recipes'}, {s.pictures} {s.pictures === 1 ? 'picture' : 'pictures'}
+            </span>
+          </div>
+          {label(s)}
+          {s.kind === 'folder' ? (
+            <p className="xs muted">
+              Recipe files in <code>{s.location}</code>, in the catalog’s format. A recipe there takes the place of the catalog’s recipe with the same id, so you can fix a game or add one without waiting for the catalog.
+            </p>
+          ) : (
+            <p className="xs muted truncate">{s.location}</p>
+          )}
+          {s.problems.length > 0 && (
+            <details className="xs">
+              <summary className="amber" style={{ minHeight: 'var(--hit)', display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
+                {s.problems.length} {s.problems.length === 1 ? 'problem' : 'problems'}
+              </summary>
+              <ul className="stack" style={{ gap: 4, paddingLeft: 16 }}>
+                {s.problems.map((p) => (
+                  <li key={p} className="muted">
+                    {p}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+interface StorageReport {
+  games: Array<{ id: string; title: string; status: string; builds: Array<{ name: string; current: boolean; bytes: number }>; download: { name: string; bytes: number } | null; bytes: number }>
+  engines: Array<{ version: string; bytes: number; used: boolean }>
+  orphans: Array<{ name: string; bytes: number }>
+  totals: { builds: number; downloads: number; engines: number }
+  freeable: { downloads: number; engines: number }
+}
+
+/** What uses space, game by game, and what Renplay can free. */
+function StorageSheet({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient()
+  const toast = useToast()
+  const { data, isLoading } = useQuery({ queryKey: ['storage'], queryFn: () => api<StorageReport>('/api/system/storage') })
+  const [confirm, setConfirm] = useState<StorageReport['games'][number] | null>(null)
+  const refresh = async () => {
+    await post('/api/system/storage/refresh')
+    await qc.invalidateQueries({ queryKey: ['storage'] })
+    void qc.invalidateQueries({ queryKey: ['system'] })
+  }
+  const run = async (fn: () => Promise<unknown>, ok: string) => {
+    try {
+      await fn()
+      toast(ok, 'success')
+      await refresh()
+    } catch (e) {
+      toast(errorText(e), 'error')
+    }
+  }
+  return (
+    <Modal open onClose={onClose} title="What uses space" wide fullPhone>
+      {isLoading || !data ? (
+        <Spinner />
+      ) : (
+        <div className="stack" style={{ gap: 20 }}>
+          <p className="small muted">
+            Games {bytes(data.totals.builds)}, downloads {bytes(data.totals.downloads)}, engines {bytes(data.totals.engines)}.
+            {data.freeable.downloads + data.freeable.engines > 0
+              ? ` Up to ${bytes(data.freeable.downloads + data.freeable.engines)} can be freed: downloads of installed games (add them again to reinstall) and engines no game uses.`
+              : ''}
+          </p>
+          <section>
+            <h3 className="small" style={{ fontWeight: 650, marginBottom: 6 }}>Games</h3>
+            <div className="list tight">
+              {data.games.map((g) => (
+                <div key={g.id} className="row between wrap" style={{ gap: 8, minHeight: 'var(--hit)', padding: '6px 0' }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontWeight: 600 }}>{g.title}</div>
+                    <div className="xs muted">
+                      {[
+                        g.builds.filter((b) => b.current).map((b) => `game ${bytes(b.bytes)}`)[0],
+                        g.builds.some((b) => !b.current) && `other builds ${bytes(g.builds.filter((b) => !b.current).reduce((n, b) => n + b.bytes, 0))}`,
+                        g.download && `download ${bytes(g.download.bytes)}`,
+                      ]
+                        .filter(Boolean)
+                        .join(', ') || 'Nothing on disk'}
+                    </div>
+                  </div>
+                  <span className="row" style={{ gap: 8 }}>
+                    <span className="small muted tnum">{bytes(g.bytes)}</span>
+                    {g.download && g.status === 'installed' && (
+                      <Button size="sm" variant="ghost" onClick={() => setConfirm(g)}>
+                        Delete download
+                      </Button>
+                    )}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </section>
+          {data.engines.length > 0 && (
+            <section>
+              <h3 className="small" style={{ fontWeight: 650, marginBottom: 6 }}>Engines</h3>
+              <div className="list tight">
+                {data.engines.map((e) => (
+                  <div key={e.version} className="row between" style={{ minHeight: 'var(--hit)' }}>
+                    <span>
+                      Ren’Py {e.version} <span className="xs muted">{e.used ? 'in use' : 'no game uses it'}</span>
+                    </span>
+                    <span className="small muted tnum">{bytes(e.bytes)}</span>
+                  </div>
+                ))}
+              </div>
+              {data.freeable.engines > 0 && (
+                <Button size="sm" style={{ marginTop: 8 }} onClick={() => void run(() => post('/api/system/prune'), 'Unused engines removed')}>
+                  Remove unused engines
+                </Button>
+              )}
+            </section>
+          )}
+          {data.orphans.length > 0 && (
+            <section>
+              <h3 className="small" style={{ fontWeight: 650, marginBottom: 6 }}>Folders of no game</h3>
+              <p className="xs muted" style={{ marginBottom: 6 }}>In the games folder but not in the library. Renplay leaves them alone, delete them yourself if you do not need them.</p>
+              <div className="list tight">
+                {data.orphans.map((o) => (
+                  <div key={o.name} className="row between" style={{ minHeight: 'var(--hit)' }}>
+                    <code>{o.name}</code>
+                    <span className="small muted tnum">{bytes(o.bytes)}</span>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+        </div>
+      )}
+      <Confirm
+        open={!!confirm}
+        onClose={() => setConfirm(null)}
+        danger
+        title="Delete this download?"
+        confirmLabel="Delete download"
+        onConfirm={() => {
+          const g = confirm!
+          setConfirm(null)
+          void run(() => del(`/api/games/${g.id}/download`), 'Download deleted')
+        }}
+      >
+        Deletes {confirm?.download?.name}. Reinstalling {confirm?.title} will need the download again. The installed game and its saves are kept.
+      </Confirm>
+    </Modal>
+  )
+}
+
+/** What everyone starts with until they choose: tags left out, Lighter background, text size, Rollback and Skip. */
+function DefaultsForEveryone() {
+  const qc = useQueryClient()
+  const toast = useToast()
+  const { data: d } = useDefaults()
+  const { data: catalog } = useCatalog()
+  if (!d) return null
+  const save = async (patch: Partial<Defaults>) => {
+    try {
+      const next = await put<Defaults>('/api/defaults', { ...d, ...patch })
+      qc.setQueryData(['defaults'], next)
+      void qc.invalidateQueries({ queryKey: ['me-tags'] })
+    } catch (e) {
+      toast(errorText(e), 'error')
+    }
+  }
+  const tri = (v: boolean | null) => (v === null ? 'unset' : v ? 'on' : 'off')
+  const fromTri = (v: string) => (v === 'unset' ? null : v === 'on')
+  return (
+    <section className="panel stack" style={{ gap: 14 }}>
+      <div>
+        <h2 className="h3">Defaults for everyone</h2>
+        <p className="small muted" style={{ marginTop: 6 }}>What people start with until they choose their own. Each person can still change these for themselves.</p>
+      </div>
+      <div className="stack" style={{ gap: 8 }}>
+        <div>
+          <div style={{ fontWeight: 650 }}>Tags left out on the Catalog page</div>
+          <p className="small muted" style={{ marginTop: 2 }}>Games with these tags are hidden in the catalog for people who have not chosen their own tags. A tap leaves a tag out, the next brings it back.</p>
+        </div>
+        {catalog && (
+          <CatalogTags games={catalog.games} vocabulary={catalog.vocabulary} prefs={{ include: [], exclude: d.tagsExclude }} onChange={(next) => void save({ tagsExclude: next.exclude })} excludeOnly />
+        )}
+      </div>
+      <Setting title="Lighter background" hint="For browsers where nobody chose. Each device follows its own reduced motion and data saver settings unless this says otherwise.">
+        <Seg
+          small
+          label="Lighter background for everyone"
+          value={tri(d.lighterBackground)}
+          onChange={(v) => void save({ lighterBackground: fromTri(v) })}
+          options={[
+            { value: 'unset', label: 'Each device' },
+            { value: 'on', label: 'On' },
+            { value: 'off', label: 'Off' },
+          ]}
+        />
+      </Setting>
+      <Setting title="Text size in games" hint="Ren’Py’s text size in games where the person has not chosen one in the player’s Options.">
+        <Seg
+          small
+          label="Text size for everyone"
+          value={d.textSize === null ? 'unset' : String(d.textSize)}
+          onChange={(v) => void save({ textSize: v === 'unset' ? null : Number(v) })}
+          options={[
+            { value: 'unset', label: 'As the game has it' },
+            { value: '1.25', label: 'Large' },
+            { value: '1.5', label: 'Larger' },
+          ]}
+        />
+      </Setting>
+      {(['rollback', 'skip'] as const).map((k) => (
+        <Setting key={k} title={k === 'rollback' ? 'Rollback in games' : 'Skip in games'} hint={k === 'rollback' ? 'Go back to earlier lines even where a game turns it off, until a person chooses in Options.' : 'Skip read text even where a game turns it off, until a person chooses in Options.'}>
+          <Seg
+            small
+            label={k === 'rollback' ? 'Rollback for everyone' : 'Skip for everyone'}
+            value={d[k] ? 'on' : 'unset'}
+            onChange={(v) => void save({ [k]: v === 'on' ? true : null })}
+            options={[
+              { value: 'unset', label: 'As the game has it' },
+              { value: 'on', label: 'On' },
+            ]}
+          />
+        </Setting>
+      ))}
+    </section>
   )
 }

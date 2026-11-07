@@ -5,7 +5,7 @@ import { PassThrough } from 'node:stream'
 import { beforeEach, describe, expect, it } from 'vitest'
 import yazl from 'yazl'
 import { readSaveMeta, readZipEntries, slotInfo } from '../saves/savefile.js'
-import { SaveStore } from '../saves/store.js'
+import { SaveStore, fnv } from '../saves/store.js'
 
 function zip(entries: Record<string, Buffer | string>): Promise<Buffer> {
   return new Promise((resolve) => {
@@ -91,6 +91,19 @@ describe('SaveStore', () => {
     expect((await store.write('G', '2-1-LT1.save', Buffer.from('three'))).conflict).toBeUndefined()
     await store.write('G', 'persistent', Buffer.from('p1'), { base: 0 })
     expect((await store.write('G', 'persistent', Buffer.from('p2'), { base: 0 })).conflict).toBeUndefined()
+  })
+
+  it('knows its own upload whose answer was lost: no conflict with itself', async () => {
+    const first = await store.write('G', '8-1-LT1.save', Buffer.from('one'), { base: 0 })
+    // The next upload landed, but its answer did not come back, so the device still has the old base.
+    await store.write('G', '8-1-LT1.save', Buffer.from('two'), { base: first.mtimeMs, mtimeMs: first.mtimeMs + 5000 })
+    const third = await store.write('G', '8-1-LT1.save', Buffer.from('three'), { base: first.mtimeMs, mtimeMs: first.mtimeMs + 9000, unanswered: fnv(Buffer.from('two')) })
+    expect(third.conflict).toBeUndefined()
+    expect((await store.history('G', '8-1-LT1.save')).map((v) => v.reason)).not.toContain('conflict')
+    // Another device's copy is still a conflict.
+    const fourth = await store.write('G', '8-1-LT1.save', Buffer.from('four'), { base: first.mtimeMs, mtimeMs: first.mtimeMs + 12000, unanswered: fnv(Buffer.from('two')) })
+    expect(fourth.conflict).toBe('replaced')
+    expect(fnv(new Uint8Array([1, 2, 3]))).toMatch(/^[0-9a-f]+:3$/)
   })
 
   it('keeps the only copy of something for 30 days, however many versions follow', async () => {

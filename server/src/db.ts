@@ -291,6 +291,19 @@ export class Db {
     if (v < 16) this.raw.exec(`BEGIN;
       CREATE TABLE IF NOT EXISTS save_meta (user_id INTEGER NOT NULL, save_dir TEXT NOT NULL, file TEXT NOT NULL, title TEXT NOT NULL DEFAULT '', note TEXT NOT NULL DEFAULT '', pinned_at TEXT NOT NULL DEFAULT '', PRIMARY KEY (user_id, save_dir, file));
       PRAGMA user_version = 16; COMMIT;`)
+    // 4.1: a PIN to switch to a person on a device that is already signed in.
+    if (v < 17) {
+      const columns = this.raw.prepare('PRAGMA table_info(users)').all().map((c) => c.name)
+      this.raw.exec('BEGIN')
+      if (!columns.includes('pin_hash')) this.raw.exec("ALTER TABLE users ADD COLUMN pin_hash TEXT NOT NULL DEFAULT ''")
+      if (!columns.includes('pin_failures')) this.raw.exec('ALTER TABLE users ADD COLUMN pin_failures INTEGER NOT NULL DEFAULT 0')
+      if (!columns.includes('pin_locked_until')) this.raw.exec('ALTER TABLE users ADD COLUMN pin_locked_until INTEGER NOT NULL DEFAULT 0')
+      this.raw.exec('PRAGMA user_version = 17; COMMIT')
+    }
+    // 4.1: the people who signed in on each browser (its cookie, hashed), the only ones Who is playing offers there.
+    if (v < 18) this.raw.exec(`BEGIN;
+      CREATE TABLE IF NOT EXISTS device_people (device TEXT NOT NULL, user_id INTEGER NOT NULL, seen_at INTEGER NOT NULL, PRIMARY KEY (device, user_id));
+      PRAGMA user_version = 18; COMMIT;`)
     } catch (error) { this.raw.close(); throw error }
   }
 

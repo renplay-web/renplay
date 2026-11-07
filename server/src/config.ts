@@ -144,6 +144,8 @@ export interface Config {
   /** Where the daily save backup goes, or null when backups are off. */
   backupDir: string | null
   backupKeep: number
+  /** Your recipes: a folder of recipe files read as one more catalog. */
+  recipesDir: string
   /** Ren'Py's sync server, for Sync codes. */
   syncServer: string
 }
@@ -233,6 +235,7 @@ export function loadConfig(): Config {
       return raw || join(dataDir, 'backups', 'saves')
     })(),
     backupKeep: Math.max(1, envInt('RENPLAY_BACKUP_KEEP', fallbackOf('RENPLAY_BACKUP_KEEP'))),
+    recipesDir: env('RENPLAY_RECIPES_DIR', '') || join(dataDir, 'recipes'),
     syncServer: env('RENPLAY_SYNC_SERVER', fallbackOf('RENPLAY_SYNC_SERVER')).replace(/\/+$/, ''),
   }
 }

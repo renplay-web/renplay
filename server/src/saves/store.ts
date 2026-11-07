@@ -116,7 +116,7 @@ export class SaveStore {
    * conflict rule applies: the copy saved later stays in the slot and the other goes to History as
    * a conflict. `conflict` says which: `kept` (the server's copy stayed) or `replaced`.
    */
-  async write(saveDir: string, name: string, data: Buffer, opts: { mtimeMs?: number; reason?: string; base?: number; everyKind?: boolean } = {}): Promise<SaveFile & { conflict?: 'kept' | 'replaced' }> {
+  async write(saveDir: string, name: string, data: Buffer, opts: { mtimeMs?: number; reason?: string; base?: number; everyKind?: boolean; unanswered?: string } = {}): Promise<SaveFile & { conflict?: 'kept' | 'replaced' }> {
     const rel = cleanRelPath(name)
     if (isJunk(rel)) throw new HttpError(400, 'Refusing temporary file')
     if (data.length > MAX_FILE) throw new HttpError(413, 'Save file too large')
@@ -139,7 +139,9 @@ export class SaveStore {
       // Only saves, unless asked (an import): Ren'Py merges its persistent data itself while it runs.
       // A millisecond either way is the same version, because file times are stored in seconds as
       // floating point.
-      if (old && opts.base !== undefined && (opts.everyKind || rel.endsWith('.save')) && Math.abs(oldMtime - opts.base) > 1) {
+      // The server's copy came from this same device when it matches an upload whose answer was lost.
+      const own = !!old && !!opts.unanswered && fnv(old) === opts.unanswered
+      if (old && !own && opts.base !== undefined && (opts.everyKind || rel.endsWith('.save')) && Math.abs(oldMtime - opts.base) > 1) {
         if (mtime < oldMtime) {
           await this.snapshot(saveDir, rel, data, 'conflict')
           return { name: rel, size: old.length, mtimeMs: oldMtime, conflict: 'kept' as const }
@@ -439,6 +441,16 @@ export interface ImportReport {
 /** History reasons whose version is the only copy of something. */
 const ONLY_COPIES = new Set(['conflict', 'delete', 'game-delete', 'user-delete', 'import', 'restore', 'sync', 'copy', 'user-copy'])
 const KEEP_ONLY_COPIES = 30 * 24 * 3600_000
+
+/** The runtime's FNV-1a hash of a file, as it names an upload: "<hex>:<length>". */
+export function fnv(data: Uint8Array): string {
+  let h = 0x811c9dc5
+  for (let i = 0; i < data.length; i++) {
+    h ^= data[i]!
+    h = Math.imul(h, 0x01000193)
+  }
+  return `${(h >>> 0).toString(16)}:${data.length}`
+}
 
 function clampMtime(ms?: number): number {
   const now = Date.now()

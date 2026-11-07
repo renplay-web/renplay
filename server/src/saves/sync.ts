@@ -69,6 +69,24 @@ function zip(entries: Array<{ name: string; data: Buffer; mtime: number }>): Pro
   })
 }
 
+/**
+ * A time moved so that, written as the server's local time (as zip files store it), it shows the
+ * clock time of the time zone `tz`. Unknown zones keep the server's own.
+ */
+function localIn(tz: string | undefined): (ms: number) => number {
+  let format: Intl.DateTimeFormat | null = null
+  if (tz && tz.length <= 64) {
+    try {
+      format = new Intl.DateTimeFormat('en-US', { timeZone: tz, hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric' })
+    } catch {}
+  }
+  return (ms) => {
+    if (!format) return ms
+    const p = Object.fromEntries(format.formatToParts(ms).map((x) => [x.type, Number(x.value)]))
+    return new Date(p['year']!, p['month']! - 1, p['day']!, p['hour']!, p['minute']!, p['second']!).getTime()
+  }
+}
+
 /** Reads a response body up to a limit, never more. */
 async function readCapped(res: Response, limit: number): Promise<Buffer> {
   if (Number(res.headers.get('content-length')) > limit) throw new HttpError(413, 'That sync is too large.')
@@ -91,7 +109,7 @@ async function call(url: string, init: RequestInit): Promise<Response> {
 }
 
 /** Packs this person's saves of one game, sends them and returns the code. */
-export async function uploadSync(server: string, store: SaveStore, saveDir: string): Promise<{ code: string; saves: number; expiresAt: number }> {
+export async function uploadSync(server: string, store: SaveStore, saveDir: string, tz?: string): Promise<{ code: string; saves: number; expiresAt: number }> {
   const files = (await store.list(saveDir)).filter((f) => syncable(f.name)).sort((a, b) => b.mtimeMs - a.mtimeMs)
   const entries: Array<{ name: string; data: Buffer; mtime: number }> = [{ name: 'save_directory', data: Buffer.from(saveDir, 'utf8'), mtime: Date.now() }]
   let total = 0
@@ -110,7 +128,11 @@ export async function uploadSync(server: string, store: SaveStore, saveDir: stri
   if (!saves && !persistent) throw new HttpError(409, 'There are no saves to send yet.')
   const code = newSyncCode()
   const { key, hash } = keyAndHash(code, saveDir)
-  const res = await call(`${server}/api/sync/v1/${hash}?game=${hashGame(saveDir)}`, { method: 'PUT', body: new Uint8Array(secretboxEncrypt(await zip(entries), key)) })
+  // Zip times are local times without a zone. Desktop Ren'Py reads them as its own, so they are
+  // written in the person's time zone, as their browser gives it.
+  const local = localIn(tz)
+  const box = secretboxEncrypt(await zip(entries.map((e) => ({ ...e, mtime: local(e.mtime) }))), key)
+  const res = await call(`${server}/api/sync/v1/${hash}?game=${hashGame(saveDir)}`, { method: 'PUT', body: new Uint8Array(box) })
   if (!res.ok) throw new HttpError(502, `Ren’Py’s sync server did not take the saves (${(await res.text().catch(() => '')).slice(0, 200) || res.status}).`)
   return { code, saves, expiresAt: Date.now() + SYNC_LIFETIME }
 }

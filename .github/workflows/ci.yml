@@ -63,6 +63,10 @@ jobs:
       - name: Check runtime script
         run: node --check runtime/renplay-runtime.js
 
+      # No semicolons, em or en dashes, or ellipses in text people read (AGENTS.md).
+      - name: Check the writing rule
+        run: node scripts/check-copy.mjs
+
       - name: Install selector deps
         run: npm ci
         working-directory: selector

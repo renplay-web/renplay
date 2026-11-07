@@ -158,6 +158,9 @@
     base: new Map(),
     // True once the server's list arrived: without it (an offline start) no base is known.
     baseKnown: false,
+    // The hash of an upload whose answer never came, by path: it may have reached the server, and
+    // then the server's copy is this device's own, not another device's.
+    unanswered: new Map(),
     inflight: false,
     online: true,
     lastSync: 0,
@@ -622,6 +625,7 @@
     // A write kept by an older Renplay has none and is delivered as before.
     var base = item.base !== undefined ? item.base : currentBase(path)
     if (base !== null) headers['x-base'] = String(base)
+    if (state.unanswered.has(path)) headers['x-unanswered'] = state.unanswered.get(path)
     var req = item.data
       ? fetch(url, { method: 'PUT', body: item.data, headers: headers })
       : fetch(url, { method: 'DELETE', headers: base !== null ? { 'x-base': String(base) } : {} })
@@ -634,6 +638,7 @@
         state.online = true
         state.failures = 0
         state.lastSync = Date.now()
+        state.unanswered.delete(path)
         if (!item.data) {
           idbMarkSynced(path, item.mtime)
           state.base.delete(path)
@@ -650,6 +655,7 @@
       })
       .catch(function (e) {
         console.warn('[renplay] upload failed for', path, e)
+        if (sentHash) state.unanswered.set(path, sentHash)
         // Keep the newest version queued.
         if (!state.queue.has(path)) state.queue.set(path, item)
         state.online = false
@@ -1233,6 +1239,20 @@
     })
   }
 
+  function sizeArg(v) {
+    return typeof v === 'number' && v >= 0.5 && v <= 2 ? String(v) : 'None'
+  }
+
+  /** The admin's defaults for everyone, as a Python dict of known names only. */
+  function defaultsArg(d) {
+    if (!d || typeof d !== 'object') return 'None'
+    var out = []
+    if (d.rollback === true) out.push('"rollback": True')
+    if (d.skip === true) out.push('"skip": True')
+    if (sizeArg(d.textSize) !== 'None') out.push('"size": ' + sizeArg(d.textSize))
+    return '{' + out.join(', ') + '}'
+  }
+
   /** The patches asked for, as a Python dict of known names and True or False only. */
   function patchArg(p) {
     if (!p || typeof p !== 'object') return 'None'
@@ -1368,12 +1388,16 @@
         // to every device) and Ren'Py's text size. Applied when the game is ready and after a load.
         exec(
           [
-          "def _renplay_options(want, size):",
+          "def _renplay_options(want, size, defaults):",
           "    import renpy",
           "    st = renpy.store",
           "    config = st.config",
           "    p = st.persistent",
-          "    cur = dict(getattr(p, \"_renplay_patches\", None) or {})",
+          "    defaults = defaults or {}",
+          "    stored = getattr(p, \"_renplay_patches\", None)",
+          "    # Until the person chooses, the admin's defaults for everyone (never written to their data).",
+          "    renpy._renplay_default_patches = dict((k, True) for k in (\"rollback\", \"skip\") if defaults.get(k))",
+          "    cur = dict(stored) if stored is not None else dict(renpy._renplay_default_patches)",
           "    orig = getattr(renpy, \"_renplay_orig\", None)",
           "    if orig is None:",
           "        orig = renpy._renplay_orig = dict(rollback=config.rollback_enabled, hard=config.hard_rollback_limit, skip=config.allow_skipping, console=config.console)",
@@ -1386,7 +1410,9 @@
           "                cur[k] = bool(want[k])",
           "        p._renplay_patches = cur",
           "    def keep():",
-          "        c = getattr(st.persistent, \"_renplay_patches\", None) or {}",
+          "        c = getattr(st.persistent, \"_renplay_patches\", None)",
+          "        if c is None:",
+          "            c = getattr(renpy, \"_renplay_default_patches\", {})",
           "        if c.get(\"rollback\"):",
           "            config.rollback_enabled = True",
           "            config.hard_rollback_limit = max(config.hard_rollback_limit, 100)",
@@ -1413,20 +1439,34 @@
           "    config.after_load_callbacks = [f for f in config.after_load_callbacks if f is not previous] + [keep]",
           "    config.interact_callbacks = [f for f in config.interact_callbacks if f is not previous] + [keep]",
           "    renpy._renplay_keep = keep",
+          "    chosen = getattr(p, \"_renplay_size_chosen\", False)",
+          "    applied = getattr(p, \"_renplay_size_default\", None)",
+          "    wanted = defaults.get(\"size\")",
+          "    moved = False",
+          "    if size is not None:",
+          "        p._renplay_size_chosen = chosen = True",
+          "    elif not chosen and wanted != applied:",
+          "        # The admin's size once each time it changes, so the game's own text size setting still works.",
+          "        if wanted:",
+          "            size = wanted",
+          "        elif st._preferences.font_size == applied:",
+          "            size = 1.0",
+          "        p._renplay_size_default = applied = wanted",
+          "        moved = True",
           "    if size is not None:",
           "        st._preferences.font_size = float(size)",
           "        st.renpy.free_memory()",
           "        renpy.display.interface.display_reset = True",
           "        st.renpy.restart_interaction()",
-          "    if want or size is not None:",
+          "    if want or chosen or moved:",
           "        st.renpy.save_persistent()",
-          "    return dict(patches=cur, fontSize=st._preferences.font_size)",
-            'result = _renplay_options(' + patchArg(d.patches) + ', ' + (typeof d.fontSize === 'number' && d.fontSize >= 0.5 && d.fontSize <= 2 ? String(d.fontSize) : 'None') + ')',
+          "    return dict(patches=cur, fontSize=st._preferences.font_size, patchesFrom=\"you\" if stored is not None or want else (\"admin\" if renpy._renplay_default_patches else \"default\"), sizeFrom=\"you\" if chosen else (\"admin\" if applied and st._preferences.font_size == applied else \"default\"))",
+            'result = _renplay_options(' + patchArg(d.patches) + ', ' + sizeArg(d.fontSize) + ', ' + defaultsArg(d.defaults) + ')',
           ].join('\n'),
           6000,
         ).then(
           function (r) {
-            post('options', { ok: true, patches: (r && r.patches) || {}, fontSize: r && r.fontSize })
+            post('options', { ok: true, patches: (r && r.patches) || {}, fontSize: r && r.fontSize, patchesFrom: r && r.patchesFrom, sizeFrom: r && r.sizeFrom })
           },
           function (er) {
             console.warn('[renplay] options', er)

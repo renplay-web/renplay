@@ -2227,7 +2227,7 @@ select.input option {
   margin-top: 2px;
   line-height: 1.45;
 }
-.ladder .lrow.fixed .seg {
+.ladder .lrow.locked .seg {
   opacity: 0.75;
 }
 .ladder .seg {

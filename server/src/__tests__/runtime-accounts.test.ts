@@ -102,7 +102,7 @@ describe('runtime account isolation', () => {
   })
   it('treats 401 as signed out, keeps the failed upload under that user, and stops retries rather than uploading into another account', async () => {
     const post = vi.fn(), fetch = vi.fn(async (_input: unknown, _init: any) => new Response('{}', { status: 401 })), put = vi.fn(), mark = vi.fn()
-    const state = { inflight: false, queue: new Map([['Game/persistent', { data: new Uint8Array([1]), mtime: 1 }]]), base: new Map(), online: true, failures: 0 }
+    const state = { inflight: false, queue: new Map([['Game/persistent', { data: new Uint8Array([1]), mtime: 1 }]]), base: new Map(), unanswered: new Map(), online: true, failures: 0 }
     const fn = new Function('window', 'cfg', 'post', 'state', 'status', 'idbPut', 'idbMarkSynced', 'Headers', 'Response', 'URL', 'location', 'currentBase', 'hash', `
       var API = '/api/saves/game';
       ${section('  var signedOut = false', "  var HOME = ")}

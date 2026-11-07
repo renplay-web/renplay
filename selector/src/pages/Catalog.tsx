@@ -7,13 +7,13 @@ import { Pill, Seg, TagPill } from '../lantern/controls'
 import { useRoom } from '../lantern/Room'
 import Sheet from '../lantern/Sheet'
 import RecipeCard from '../components/RecipeCard'
-import TagFilters from '../components/TagFilters'
+import CatalogTags, { matchesTags, useTagPrefs } from '../components/CatalogTags'
 import { Button, Empty, Spinner, errorText } from '../components/ui'
 import type { Recipe } from '../lib/api'
 import { ago } from '../lib/format'
 import { post } from '../lib/api'
 import { useCatalog } from '../lib/queries'
-import { gameTags, matchesSearch, stateLabel, tagChips } from '../lib/tags'
+import { matchesSearch, stateLabel } from '../lib/tags'
 
 const REQUEST_URL = 'https://renplay.org/catalog/request'
 
@@ -52,7 +52,7 @@ export default function Catalog() {
   const { data, isLoading, error, refetch } = useCatalog()
   const qc = useQueryClient()
   const [search, setSearch] = useState('')
-  const [tag, setTag] = useState<string | null>(null)
+  const [tagPrefs, setTagPrefs] = useTagPrefs()
   const [limit, setLimit] = useState(36)
   const [filter, setFilter] = useState('all')
   const [sheetFor, setSheetFor] = useState<Recipe | null>(null)
@@ -67,7 +67,9 @@ export default function Catalog() {
     )
   const all = data.games
   const vocabulary = data.vocabulary
-  const filtered = all.filter((g) => matchesSearch(g, search, vocabulary) && (filter === 'all' || (filter === 'free' ? g.free === true || (g.free === undefined && g.nsfw === false) : g.state === 'completed')) && (!tag || gameTags(g, vocabulary).some((t) => t.id === tag)))
+  // Search and the segment first, so the tag counts say how many of these games have each tag.
+  const shown = all.filter((g) => matchesSearch(g, search, vocabulary) && (filter === 'all' || (filter === 'free' ? g.free === true || (g.free === undefined && g.nsfw === false) : g.state === 'completed')))
+  const filtered = shown.filter((g) => matchesTags(g, tagPrefs, vocabulary))
   const sheet = sheetFor && all.find((r) => r.id === sheetFor.id)
   return (
     <div>
@@ -96,11 +98,26 @@ export default function Catalog() {
           </Pill>
         </div>
       </div>
-      {data.status.errors.length > 0 && (
-        <p className="small amber" style={{ marginTop: 10 }}>
-          Could not reach the catalog. Last updated {ago(data.status.fetchedAt)}.
-        </p>
-      )}
+      {(() => {
+        // A catalog that could not be read, or recipe files of your own with problems: said apart.
+        const sources = data.status.sources
+        const unreachable = sources ? sources.some((s) => s.kind === 'catalog' && s.problems.length > 0) : data.status.errors.length > 0
+        const local = sources?.find((s) => s.kind === 'folder')?.problems.length ?? 0
+        return (
+          <>
+            {unreachable && (
+              <p className="small amber" style={{ marginTop: 10 }}>
+                Could not reach the catalog. Last updated {ago(data.status.fetchedAt)}.
+              </p>
+            )}
+            {local > 0 && (
+              <p className="small amber" style={{ marginTop: 16 }}>
+                {local === 1 ? 'A file in Your recipes has a problem' : `${local} files in Your recipes have problems`}. <Link to="/settings" className="link">Settings</Link> says which.
+              </p>
+            )}
+          </>
+        )
+      })()}
       <div className="toolbar" style={{ marginTop: 14 }}>
         <input aria-label="Search the catalog" placeholder="Search the catalog" value={search} onChange={(e) => { setSearch(e.target.value); setLimit(36) }} className="input" />
         <Seg
@@ -117,16 +134,17 @@ export default function Catalog() {
           ]}
         />
       </div>
-      <TagFilters
-        tags={tagChips(all, vocabulary)}
-        selected={tag}
-        onSelect={(id) => {
-          setTag(id)
+      <CatalogTags
+        games={shown}
+        vocabulary={vocabulary}
+        prefs={tagPrefs}
+        onChange={(next) => {
+          setTagPrefs(next)
           setLimit(36)
         }}
       />
       {!filtered.length ? (
-        <Empty title="No games match" action={<Button onClick={() => { setSearch(''); setTag(null); setFilter('all') }}>Clear filters</Button>}>
+        <Empty title="No games match" action={<Button onClick={() => { setSearch(''); setTagPrefs({ include: [], exclude: [] }); setFilter('all') }}>Clear filters</Button>}>
           Nothing in the catalog matches. Try a different search or tag.
         </Empty>
       ) : (

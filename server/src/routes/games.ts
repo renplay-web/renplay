@@ -52,7 +52,7 @@ export const RECIPE_SCHEMA_URL = 'https://catalog.renplay.org/recipe.schema.json
 
 export interface GameDeps {
   cfg: Config
-  accounts?: Accounts
+  accounts: Accounts
   db: Db
   jobs: JobManager
   builds: Builds
@@ -63,7 +63,7 @@ export interface GameDeps {
 }
 
 export async function toGame(row: GameRow, deps: GameDeps) {
-  if (deps.accounts) row = deps.accounts.progress(row)
+  row = deps.accounts.progress(row)
   const source = parseJson<GameSource>(row.source, {})
   const job = deps.jobs.activeFor(row.id)
   let latestSave: { file: string; label: string; name: string; ctime: number; runtime: number | undefined; screenshot: string | null; screenshotHash?: string | null } | null = null
@@ -80,7 +80,7 @@ export async function toGame(row: GameRow, deps: GameDeps) {
         if (!latestSave || ctime > latestSave.ctime) {
           latestSave = {
             file: f.name, label: slotInfo(f.name).label, name: meta.name ?? '', ctime, runtime: meta.runtime,
-            screenshot: meta.hasScreenshot ? `/api/saves/${row.id}/screenshot?user=${deps.accounts?.current().id ?? 1}&file=${encodeURIComponent(f.name)}&v=${f.mtimeMs}` : null,
+            screenshot: meta.hasScreenshot ? `/api/saves/${row.id}/screenshot?user=${deps.accounts.current().id}&file=${encodeURIComponent(f.name)}&v=${f.mtimeMs}` : null,
           }
           latestFile = f
         }
@@ -121,7 +121,7 @@ export async function toGame(row: GameRow, deps: GameDeps) {
     status: row.status,
     build: row.build || null,
     // The game page is an iframe, which sends no header: this device's level rides along as a query.
-    playUrl: row.status === 'installed' && row.build ? (row.family !== 'renpy' && deps.accounts ? deps.accounts.assetUrl(row) : playPath(row) + (viewer()?.device ? `?adult=${viewer()!.device}` : '')) : null,
+    playUrl: row.status === 'installed' && row.build ? (row.family !== 'renpy' ? deps.accounts.assetUrl(row) : playPath(row) + (viewer()?.device ? `?adult=${viewer()!.device}` : '')) : null,
     family: row.family || 'renpy',
     /** What made the game, for other engines ("HTML (SugarCube 2.36.1)"). */
     engineLabel: row.engine_label || null,
@@ -259,28 +259,38 @@ export function createGamesRouter(deps: GameDeps): Router {
     res.json({ id, warning, art: deps.catalog.art!.forSubject(subject) })
   })
 
+  /** Deletes one's own upload (scope me), or an admin's upload for everyone (scope everyone). */
+  router.delete('/:id/art/uploads/:upload', async (req, res) => {
+    const g = withArt(req)
+    const kind = kindOf(req.query['kind'])
+    const scope = scopeOf(req.query['scope'])
+    if (!/^[0-9a-f]{64}$/.test(req.params.upload)) throw new HttpError(404, 'Picture not found')
+    if (!deps.catalog.art!.removeUpload(g.id, kind, req.params.upload, scope)) throw new HttpError(404, 'Picture not found')
+    const subject = deps.catalog.gameSubject(g)
+    await deps.catalog.art!.ready(subject, scope)
+    res.json({ art: deps.catalog.art!.forSubject(subject) })
+  })
+
   router.put('/:id/favorite', async (req, res) => {
     const g = get(req)
     if (typeof req.body?.on !== 'boolean') throw new HttpError(400, 'On must be a boolean')
-    const patch = { favorite_at: req.body.on ? (deps.accounts?.progress(g).favorite_at ?? g.favorite_at) || new Date().toISOString() : '' }
-    if (deps.accounts) deps.accounts.setProgress(g.id, patch)
-    else db.updateGame(g.id, patch)
+    const patch = { favorite_at: req.body.on ? deps.accounts.progress(g).favorite_at || new Date().toISOString() : '' }
+    deps.accounts.setProgress(g.id, patch)
     res.json({ ok: true, game: await toGame(db.getGame(g.id)!, deps) })
   })
 
   /** Finished keeps finished_at in step with the status, which 3.x reads. */
   const setStatus = (g: GameRow, status: string) => {
-    const previous = deps.accounts ? deps.accounts.progress(g).finished_at : g.finished_at
+    const previous = deps.accounts.progress(g).finished_at
     const patch = { play_status: status, finished_at: status === 'finished' ? previous || new Date().toISOString() : '' }
-    if (deps.accounts) deps.accounts.setProgress(g.id, patch)
-    else db.updateGame(g.id, { finished_at: patch.finished_at })
+    deps.accounts.setProgress(g.id, patch)
   }
 
   router.put('/:id/finished', async (req, res) => {
     const g = get(req)
     if (typeof req.body?.on !== 'boolean') throw new HttpError(400, 'On must be a boolean')
     // Not finished (from 3.x) clears Finished only: Stalled or Dropped stay.
-    const current = deps.accounts ? deps.accounts.progress(g).play_status : ''
+    const current = deps.accounts.progress(g).play_status
     if (req.body.on) setStatus(g, 'finished')
     else if (!current || current === 'finished') setStatus(g, '')
     res.json({ ok: true, game: await toGame(db.getGame(g.id)!, deps) })
@@ -298,7 +308,6 @@ export function createGamesRouter(deps: GameDeps): Router {
     const g = get(req)
     const rating = req.body?.rating ?? 0
     if (!Number.isInteger(rating) || rating < 0 || rating > 5) throw new HttpError(400, 'Rating must be a whole number from 0 to 5')
-    if (!deps.accounts) throw new HttpError(503, 'Ratings need accounts')
     deps.accounts.setProgress(g.id, { rating })
     res.json({ ok: true, game: await toGame(db.getGame(g.id)!, deps) })
   })
@@ -306,13 +315,11 @@ export function createGamesRouter(deps: GameDeps): Router {
   // Not now: the game leaves Up next until it is played again. DELETE undoes it.
   router.post('/:id/not-now', async (req, res) => {
     const g = get(req)
-    if (!deps.accounts) throw new HttpError(503, 'Not now needs accounts')
     deps.accounts.setProgress(g.id, { not_now_at: new Date().toISOString() })
     res.json({ ok: true, game: await toGame(db.getGame(g.id)!, deps) })
   })
   router.delete('/:id/not-now', async (req, res) => {
     const g = get(req)
-    if (!deps.accounts) throw new HttpError(503, 'Not now needs accounts')
     deps.accounts.setProgress(g.id, { not_now_at: '' })
     res.json({ ok: true, game: await toGame(db.getGame(g.id)!, deps) })
   })
@@ -322,17 +329,14 @@ export function createGamesRouter(deps: GameDeps): Router {
     const g = get(req)
     const seconds = req.body?.seconds
     if (!Number.isInteger(seconds) || seconds < 1 || seconds > 60) throw new HttpError(400, 'Seconds must be an integer from 1 to 60')
-    if (deps.accounts) {
-      const counted = deps.accounts.addPlayTime(g.id, seconds)
-      if (counted) deps.accounts.setProgress(g.id, { play_time: deps.accounts.progress(g).play_time + counted })
-    } else db.raw.prepare('UPDATE games SET play_time = play_time + ? WHERE id = ?').run(seconds, g.id)
+    const counted = deps.accounts.addPlayTime(g.id, seconds)
+    if (counted) deps.accounts.setProgress(g.id, { play_time: deps.accounts.progress(g).play_time + counted })
     res.json({ ok: true })
   })
 
   router.post('/:id/played', (req, res) => {
     const id = get(req).id, patch = { last_played_at: new Date().toISOString() }
-    if (deps.accounts) deps.accounts.setProgress(id, patch)
-    else db.updateGame(id, patch)
+    deps.accounts.setProgress(id, patch)
     res.json({ ok: true })
   })
 
@@ -343,6 +347,7 @@ export function createGamesRouter(deps: GameDeps): Router {
     await builds.remove(g.id)
     if (req.query['forget'] === '1') {
       for (const w of db.walkthroughs(g.id)) await unlink(join(cfg.walkthroughsDir, w.file)).catch(() => {})
+      deps.catalog.art?.forgetGame(g.id)
       db.raw.prepare('DELETE FROM walkthroughs WHERE game = ?').run(g.id)
       // Its finished jobs go with it: without the game, nothing tells whether they were about an
       // adult game. Saves stay, as always.
@@ -381,6 +386,8 @@ export function createGamesRouter(deps: GameDeps): Router {
       recipeId: g.recipe_id || undefined,
       engine: typeof req.body?.engine === 'string' ? req.body.engine : undefined,
       reapplyMods: !!req.body?.reapplyMods,
+      // Who started it: Choose artwork opens for them alone.
+      by: viewer()?.user.id,
     })
     if (g.status !== 'installed') db.updateGame(g.id, { status: 'installing' })
     res.json({ jobId: id })

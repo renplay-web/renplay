@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync, symlinkSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -15,12 +15,13 @@ describe('catalog', () => {
   let base = ''
   let cover: Buffer
   let coverRequests = 0
+  let index: any = null
 
   beforeAll(async () => {
     // Official art is often a PNG wider than a thumbnail needs.
     cover = await sharp({ create: { width: 1260, height: 1000, channels: 3, background: '#a35' } }).png().toBuffer()
     const sha = createHash('sha256').update(cover).digest('hex')
-    const index = {
+    index = {
       schema: 2,
       vocabulary: { 'sci-fi': { label: 'Sci-fi', group: 'story' } },
       games: [
@@ -139,7 +140,53 @@ describe('catalog', () => {
     expect(cols).not.toContain('cover')
     expect(cols).not.toContain('save_dir_locked')
     expect(db.getGame('kept')).toMatchObject({ title: 'Kept', family: 'renpy', engine_label: '', entry: '' })
-    expect((db.raw.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(16)
+    expect((db.raw.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(18)
+    db.close()
+  })
+
+  it('reads Your recipes: one takes the catalog recipe’s place, files are hashed, problems are named', async () => {
+    const { cfg, db, catalog } = setup()
+    const dir = cfg.recipesDir
+    mkdirSync(join(dir, 'art', 'ripples'), { recursive: true })
+    mkdirSync(join(dir, 'patches', 'ripples'), { recursive: true })
+    const grid = await sharp({ create: { width: 600, height: 900, channels: 3, background: '#357' } }).png().toBuffer()
+    writeFileSync(join(dir, 'art', 'ripples', 'grid.png'), grid)
+    writeFileSync(join(dir, 'patches', 'ripples', 'zz_fix.rpy'), 'init python:\n    pass\n')
+    writeFileSync(join(dir, 'ripples.yaml'), [
+      'id: ripples', 'title: Ripples, fixed here', 'nsfw: false', 'tags: [sci-fi, not-a-tag]', 'releases: []',
+      'art:', '  - kind: grid', '    file: art/ripples/grid.png', '  - kind: wide', '    file: art/ripples/missing.png', '  - kind: hero', '    file: art/ripples/link.png',
+      'build:', '  patches:', '    - path: game/zz_fix.rpy', '      file: zz_fix.rpy',
+    ].join('\n'))
+    writeFileSync(join(dir, 'mine.yaml'), 'id: mine\ntitle: Mine\nreleases: []\n')
+    writeFileSync(join(dir, 'wrong.yaml'), 'id: other\ntitle: Other\nreleases: []\n')
+    writeFileSync(join(dir, 'broken.yaml'), 'id: [\n')
+    writeFileSync(join(dir, '_template.yaml'), 'id: template\n')
+    // A link that leads out of the folder is refused.
+    writeFileSync(join(cfg.dataDir, 'outside.png'), grid)
+    symlinkSync(join(cfg.dataDir, 'outside.png'), join(dir, 'art', 'ripples', 'link.png'))
+    // A catalog's recipe cannot name files in Your recipes.
+    index.games.push({ id: 'sneaky', title: 'Sneaky', releases: [], art: [{ kind: 'grid', url: 'local:art/ripples/grid.png' }], build: { patches: [{ path: 'game/zz_fix.rpy', url: 'local:patches/ripples/zz_fix.rpy' }] } })
+    await catalog.refresh()
+    index.games.pop()
+    expect(catalog.recipe('sneaky')).toMatchObject({ art: [], build: { patches: [] } })
+    const ripples = catalog.recipe('ripples')!
+    expect(ripples).toMatchObject({ title: 'Ripples, fixed here', _origin: 'local', tagIds: ['sci-fi'], tags: ['sci-fi'] })
+    expect(ripples.art).toEqual([expect.objectContaining({ kind: 'grid', url: 'local:art/ripples/grid.png', sha256: createHash('sha256').update(grid).digest('hex'), width: 600, height: 900 })])
+    // Without its nsfw line a recipe counts as an adult game.
+    expect(catalog.recipe('mine')).toMatchObject({ engine: 'renpy', _origin: 'local', nsfw: true })
+    expect(ripples.nsfw).toBe(false)
+    expect(catalog.recipe('other')).toBeNull()
+    const errors = catalog.status().errors.join('\n')
+    for (const bit of ['wrong.yaml: the id must be wrong', 'broken.yaml: not valid YAML', 'ripples.yaml: unknown tags left out: not-a-tag', 'missing.png left out', 'link.png left out: it is outside the folder', 'mine.yaml: it has no nsfw line']) expect(errors).toContain(bit)
+    expect(errors).not.toContain('_template')
+    const patches = await catalog.patches(ripples, { signal: new AbortController().signal, log: () => {} } as never)
+    expect(patches.get('zz_fix.rpy')?.toString()).toContain('init python')
+    expect(catalog.sources()).toEqual([
+      expect.objectContaining({ kind: 'catalog', location: base, recipes: 3 }),
+      expect.objectContaining({ kind: 'folder', location: dir, recipes: 2, pictures: 1 }),
+    ])
+    expect(catalog.sources()[1]!.problems.length).toBe(6)
+    catalog.stop()
     db.close()
   })
 
@@ -192,7 +239,7 @@ describe('catalog', () => {
     db.close()
     db = Db.open(root)
     expect(db.getGame('kept')).toMatchObject({ title: 'Kept', favorite_at: '', source: '{"archive":"game.zip"}' })
-    expect(db.raw.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 16 })
+    expect(db.raw.prepare('PRAGMA user_version').get()).toMatchObject({ user_version: 18 })
     db.updateGame('kept', { favorite_at: '2026-11-04T12:00:00.000Z' })
     db.close()
     db = Db.open(root)

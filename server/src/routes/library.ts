@@ -11,6 +11,7 @@ import type { JobManager } from '../jobs.js'
 import { INSPECT_VERSION, inspectArchive, type ArchiveInfo } from '../pipeline/import.js'
 import { exists, newId } from '../util/fsx.js'
 import { HttpError, cleanRelPath, isSlug, safeJoin } from '../util/paths.js'
+import { viewer } from '../accounts-context.js'
 
 const ARCHIVE_RE = /\.(zip|7z|rar|tar|tgz|tar\.(gz|bz2|xz|zst))$/i
 const CHUNK = 32 << 20
@@ -162,6 +163,8 @@ export function createLibraryRouter(deps: LibraryDeps): Router {
       recipeId: typeof b.recipeId === 'string' ? b.recipeId : undefined,
       engine: typeof b.engine === 'string' && b.engine ? b.engine : undefined,
       reapplyMods: !!b.reapplyMods,
+      // Who started it: Choose artwork opens for them alone.
+      by: viewer()?.user.id,
     })
     res.json({ jobId: id })
   })
@@ -240,11 +243,13 @@ export function createLibraryRouter(deps: LibraryDeps): Router {
   router.get('/catalog', async (_req, res) => {
     const games = db.allGames().filter((g) => !catalog.content.hides(g))
     res.json({
-      status: { ...catalog.status(), count: catalog.list().length },
+      // Where Your recipes live on the server is for admins.
+      status: { ...catalog.status(), count: catalog.list().length, sources: catalog.sources().map((s) => (s.kind === 'folder' && viewer()?.user.role !== 'admin' ? { ...s, location: '' } : s)) },
       vocabulary: catalog.content.hidesRecipe(true) ? Object.fromEntries(Object.entries(catalog.vocabulary).filter(([, v]) => v.group !== 'content')) : catalog.vocabulary,
       games: catalog.list().map((r) => {
         const local = games.find((g) => g.recipe_id === r.id) ?? (r.saveDir ? games.find((g) => g.save_dir === r.saveDir) : undefined)
-        return { ...r, _base: undefined, art: catalog.recipeArt(r), local: local ? { id: local.id, status: local.status, version: installedRelease(r, local.version, parseJson<GameSource>(local.source, {}).archive)?.version ?? local.version, detectedVersion: local.version } : null }
+        // The source as the interface says it: Your recipes, or the catalog (its address stays here).
+        return { ...r, _base: undefined, _origin: undefined, fromYourRecipes: r._origin === 'local' || undefined, art: catalog.recipeArt(r), local: local ? { id: local.id, status: local.status, version: installedRelease(r, local.version, parseJson<GameSource>(local.source, {}).archive)?.version ?? local.version, detectedVersion: local.version } : null }
       }),
     })
   })

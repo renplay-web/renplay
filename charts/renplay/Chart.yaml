@@ -4,8 +4,8 @@ name: renplay
 description: Play downloaded Ren'Py visual novels in your browser with server saves
 type: application
 kubeVersion: ">=1.25.0-0"
-version: 4.0.1
-appVersion: "4.0.1"
+version: 4.1.0
+appVersion: "4.1.0"
 home: https://renplay.org
 icon: https://raw.githubusercontent.com/renplay-org/renplay/dev/docs/logo-1024.png
 sources:
@@ -30,7 +30,7 @@ annotations:
       url: https://github.com/renplay-org/renplay
   artifacthub.io/images: |
     - name: renplay
-      image: ghcr.io/renplay-org/renplay:4.0.1
+      image: ghcr.io/renplay-org/renplay:4.1.0
   artifacthub.io/changes: |
     - kind: added
       description: Official Helm chart with persistent storage and optional downloads storage.

@@ -225,6 +225,39 @@ describe('names, notes and pins of saves', () => {
     await request(app.app).put('/api/games/story/art').send({ kind: 'grid', candidate: shared.id ?? shared.candidate ?? shared.picture, scope: 'everyone' }).expect(200)
   })
 
+  it('deletes one’s own upload, and forgets a game’s art with the game', async () => {
+    const pngOf = (color: string) => sharp({ create: { width: 600, height: 900, channels: 3, background: color } }).png().toBuffer()
+    const mine = (await request(app.app).post('/api/games/story/art/upload?kind=grid&scope=me').set('content-type', 'image/png').send(await pngOf('#713')).expect(200)).body.id
+    const listed = (await request(app.app).get('/api/games/story/art?kind=grid').expect(200)).body.candidates.find((c: { id: string }) => c.id === mine)
+    expect(listed).toMatchObject({ upload: true, ownUpload: true, sharedUpload: false })
+    await request(app.app).delete(`/api/games/story/art/uploads/${mine}?kind=grid&scope=everyone`).expect(404)
+    await request(app.app).delete(`/api/games/story/art/uploads/${mine}?kind=grid&scope=me`).expect(200)
+    await request(app.app).delete(`/api/games/story/art/uploads/${mine}?kind=grid&scope=me`).expect(404)
+    await request(app.app).delete('/api/games/story/art/uploads/not-an-id?kind=grid&scope=me').expect(404)
+    expect(app.db.raw.prepare("SELECT COUNT(*) n FROM art_choices WHERE candidate = ?").get(mine)).toEqual({ n: 0 })
+    app.db.insertGame({ id: 'gone', title: 'Gone', status: 'not_installed', save_dir: 'Gone-1' })
+    await request(app.app).post('/api/games/gone/art/upload?kind=grid&scope=me').set('content-type', 'image/png').send(await pngOf('#317')).expect(200)
+    await request(app.app).delete('/api/games/gone?forget=1').expect(200)
+    expect(app.db.raw.prepare("SELECT COUNT(*) n FROM art_uploads WHERE game = 'gone'").get()).toEqual({ n: 0 })
+  })
+
+  it('says who started an install, so Choose artwork opens for them alone', async () => {
+    const id = app.jobs.enqueue('import', 'story', { source: { kind: 'archive', path: 'story.zip' }, by: 1 })
+    const job = (await request(app.app).get('/api/jobs').expect(200)).body.jobs.find((j: { id: string }) => j.id === id)
+    expect(job.params).toEqual({ source: { kind: 'archive', path: 'story.zip' }, by: 1 })
+    app.db.raw.prepare('DELETE FROM jobs WHERE id = ?').run(id)
+  })
+
+  it('keeps each person’s tag preferences for the catalog', async () => {
+    expect((await request(app.app).get('/api/me/tags').expect(200)).body).toEqual({ include: [], exclude: [], source: 'default' })
+    expect((await request(app.app).put('/api/me/tags').send({ include: ['romance', 'romance'], exclude: ['horror', 'romance'] }).expect(200)).body).toEqual({ include: ['romance'], exclude: ['horror'], source: 'you' })
+    expect((await request(app.app).get('/api/me/tags').expect(200)).body).toEqual({ include: ['romance'], exclude: ['horror'], source: 'you' })
+    await request(app.app).put('/api/me/tags').send({ include: ['Not A Tag'] }).expect(400)
+    await request(app.app).put('/api/me/tags').send({ exclude: 'horror' }).expect(400)
+    // The 3.x picture preference stays beside it, for a downgrade.
+    expect(JSON.parse((app.db.raw.prepare('SELECT prefs FROM users WHERE id = 1').get() as { prefs: string }).prefs)).toMatchObject({ tags: { include: ['romance'] } })
+  })
+
   it('tells a device about a conflict and lists it with the saves', async () => {
     const put = (body: string, mtime: number, base?: number) => {
       const r = request(app.app).put('/api/saves/story/file?path=Story-1/3-1-LT1.save').set('content-type', 'application/octet-stream').set('x-mtime', String(mtime))

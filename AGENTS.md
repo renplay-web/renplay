@@ -42,7 +42,10 @@ These decide most review comments. Follow them without being asked.
   installed", tags shown capitalized. No all-caps labels. Text after a "·" separator starts with
   a capital letter too.
 - **Plain, short copy.** Full sentences, no jargon (say "save folder", not "config.save_directory",
-  outside developer-facing places), no exclamation marks.
+  outside developer-facing places), no exclamation marks. No semicolons, em dashes, en dashes or
+  ellipses in text people read: the interface, server messages and logs, docs, the changelog,
+  commit and pull request text. Hyphens in compound words, and semicolons in code, are fine.
+  `node scripts/check-copy.mjs` checks the interface, server messages and the changelog in CI.
 - **Adult games have three levels.** Off (they do not exist for that person), Blurred (they show,
   but no picture of them is ever sent) and Shown, set by the installation, the person's account (an
   admin or a sign-in group), the person and the device. Each layer only narrows the one above. The

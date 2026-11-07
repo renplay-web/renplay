@@ -3,6 +3,8 @@ import { useQuery } from '@tanstack/react-query'
 import { Navigate, Outlet, useLocation } from 'react-router-dom'
 import { api, ApiError } from './api'
 import { Spinner } from '../components/ui'
+import { setAdminLighterBackground } from './backdrop'
+import { useDefaults } from './queries'
 
 export interface Account {
   id: number
@@ -16,6 +18,8 @@ export interface Account {
   admin_source?: 'manual' | 'provider' | 'allowlist'
   roleManaged?: boolean
   adultManaged?: boolean
+  /** Has a PIN for switching on a shared device. */
+  hasPin?: boolean
 }
 export function useAuth() {
   return useQuery({ queryKey: ['me'], queryFn: () => api<{ user: Account; auth: boolean; unclaimed: boolean; hasPassword: boolean }>('/api/me'), retry: false })
@@ -33,5 +37,15 @@ export function AuthGuard({ admin = false }: { admin?: boolean }) {
   if (me.error instanceof ApiError && me.error.status === 401 && (!me.data || !location.pathname.startsWith('/play/'))) return <Navigate to={`/signin?return=${encodeURIComponent(location.pathname + location.search)}`} replace />
   if (!me.data) return <p className="p-6 text-zinc-300">Could not reach Renplay. Reload to try again.</p>
   if (admin && me.data.user.role !== 'admin') return <Navigate to="/" replace />
+  return <WithDefaults />
+}
+
+/** The signed-in pages, with the admin's defaults applied to this browser. */
+function WithDefaults() {
+  // The admin's default for Lighter background, for browsers that did not choose.
+  const defaults = useDefaults()
+  useEffect(() => {
+    setAdminLighterBackground(defaults.data?.lighterBackground ?? null)
+  }, [defaults.data?.lighterBackground])
   return <Outlet />
 }

@@ -25,7 +25,7 @@ import DocsLink from '../components/DocsLink'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { formatFor, hashUrl, TitleArt, useHidden } from '../lantern/art'
-import { Bar, Seg } from '../lantern/controls'
+import { Bar, Seg, SourceLabel } from '../lantern/controls'
 import { flyGhost, takeTravel } from '../lantern/travel'
 import { Button, Confirm, IconButton, Progress, Spinner, Switch, cx, useToast } from '../components/ui'
 import { useAuth } from '../lib/auth'
@@ -44,7 +44,7 @@ import {
   type Insets,
 } from '../lib/display'
 import { ago } from '../lib/format'
-import { useGame, useSaves } from '../lib/queries'
+import { useDefaults, useGame, useSaves, type Defaults } from '../lib/queries'
 import { queueHtmlSave, uploadHtmlSave, replayHtmlSaves } from '../lib/html-save-queue'
 
 type Panel = null | 'fullscreen'
@@ -107,7 +107,12 @@ export default function Player() {
   const [unsent, setUnsent] = useState<'library' | 'game' | null>(null)
   const savingId = useRef<string | null>(null)
   // Ren'Py games: the patches this person chose and the text size, as the game reports them.
-  const [gameOptions, setGameOptions] = useState<{ patches: { rollback?: boolean; skip?: boolean; console?: boolean }; fontSize: number } | null>(null)
+  const [gameOptions, setGameOptions] = useState<{ patches: { rollback?: boolean; skip?: boolean; console?: boolean }; fontSize: number; patchesFrom: string; sizeFrom: string } | null>(null)
+  // Defaults for everyone, sent with every options message so a game uses them until the person chooses.
+  const defaults = useDefaults()
+  const defaultsRef = useRef<Defaults | undefined>(undefined)
+  defaultsRef.current = defaults.data
+  const sendOptions = (extra: Record<string, unknown>) => send({ type: 'renplay:options', defaults: defaultsRef.current, ...extra })
   const [muted, setMuted] = useState(() => localStorage.getItem(MUTE_KEY) === '1')
   // Esc is locked (a tap reaches the game), shown as a hint for a few seconds,
   // and currently held down.
@@ -186,11 +191,11 @@ export default function Player() {
           }
           send({ type: 'renplay:focus' })
           send({ type: 'renplay:mute', value: muted })
-          // This person's patches and text size, applied now and read back for Options.
-          if (!sandboxed) send({ type: 'renplay:options' })
+          // This person's patches and text size (or the defaults for everyone), applied now and read back for Options.
+          if (!sandboxed) send({ type: 'renplay:options', defaults: defaultsRef.current })
           break
         case 'renplay:options':
-          if (d.ok) setGameOptions({ patches: d.patches ?? {}, fontSize: typeof d.fontSize === 'number' ? d.fontSize : 1 })
+          if (d.ok) setGameOptions({ patches: d.patches ?? {}, fontSize: typeof d.fontSize === 'number' ? d.fontSize : 1, patchesFrom: d.patchesFrom ?? 'default', sizeFrom: d.sizeFrom ?? 'default' })
           else toast('The game did not take that change.')
           break
         case 'renplay:sync':
@@ -467,6 +472,12 @@ export default function Player() {
     navigate(to === 'library' ? '/' : `/game/${gameId}`)
   }, [navigate, qc, send, gameId, saveAndFlush])
 
+  // Defaults that arrive after the game was ready still reach it.
+  useEffect(() => {
+    if (ready && !sandboxed && defaults.data) send({ type: 'renplay:options', defaults: defaults.data })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, sandboxed, defaults.data])
+
   /** Save now: a quick save, synced to the server. */
   const saveNow = () => {
     if (savingNow) return
@@ -689,12 +700,15 @@ export default function Player() {
               )}
               {!sandboxed && gameOptions && (
                 <div className="stack" style={{ gap: 8 }}>
-                  <div className="small" style={{ fontWeight: 600 }}>Text size</div>
+                  <div className="row between" style={{ gap: 8 }}>
+                    <span className="small" style={{ fontWeight: 600 }}>Text size</span>
+                    {gameOptions.sizeFrom === 'admin' && <SourceLabel kind="admin" />}
+                  </div>
                   <Seg
                     small
                     label="Text size"
                     value={String(TEXT_SIZES.find((t) => Math.abs(t.value - gameOptions.fontSize) < 0.01)?.value ?? '')}
-                    onChange={(v) => send({ type: 'renplay:options', fontSize: Number(v) })}
+                    onChange={(v) => sendOptions({ fontSize: Number(v) })}
                     options={TEXT_SIZES.map((t) => ({ value: String(t.value), label: t.label }))}
                   />
                 </div>
@@ -709,24 +723,27 @@ export default function Player() {
               )}
               {!sandboxed && gameOptions && (
                 <div className="stack" style={{ gap: 4 }}>
-                  <div className="small" style={{ fontWeight: 600 }}>For you in this game</div>
+                  <div className="row between" style={{ gap: 8 }}>
+                    <span className="small" style={{ fontWeight: 600 }}>For you in this game</span>
+                    {gameOptions.patchesFrom === 'admin' && <SourceLabel kind="admin" />}
+                  </div>
                   <Switch
                     checked={!!gameOptions.patches.rollback}
                     label="Rollback"
                     hint="Go back to earlier lines with the mouse wheel or Page Up, even where the game turns it off."
-                    onChange={(rollback) => send({ type: 'renplay:options', patches: { rollback } })}
+                    onChange={(rollback) => sendOptions({ patches: { rollback } })}
                   />
                   <Switch
                     checked={!!gameOptions.patches.skip}
                     label="Skip"
                     hint="Skip text you have read with Ctrl or Tab, even where the game turns it off."
-                    onChange={(skip) => send({ type: 'renplay:options', patches: { skip } })}
+                    onChange={(skip) => sendOptions({ patches: { skip } })}
                   />
                   <Switch
                     checked={!!gameOptions.patches.console}
                     label="Developer console"
                     hint="Ren’Py’s console, opened with Shift and O. For changing variables, at your own risk."
-                    onChange={(console) => send({ type: 'renplay:options', patches: { console } })}
+                    onChange={(console) => sendOptions({ patches: { console } })}
                   />
                   <p className="xs muted">Kept with this game’s saves, so they follow you to every device. The game’s files do not change.</p>
                 </div>

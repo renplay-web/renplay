@@ -213,6 +213,20 @@ Build every game with this one engine version, such as one the engines index lis
 
 </div>
 
+<div class="config-entry" id="renplay-recipes-dir">
+
+**`RENPLAY_RECIPES_DIR`**
+
+<div class="config-default">
+
+Default: recipes in the data folder
+
+</div>
+
+Your recipes: a folder of recipe files in the catalog’s format, read as one more catalog. A recipe here takes the place of a catalog recipe with the same id.
+
+</div>
+
 
 ## Images and saves
 

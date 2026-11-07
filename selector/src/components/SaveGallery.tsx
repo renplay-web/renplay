@@ -5,7 +5,7 @@ import { ArrowLeftRight, Copy, Download, FileArchive, History, MoreHorizontal, P
 import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api, del, post, slotName, type Game, type SaveSlot } from '../lib/api'
-import { ago, bytes, dateTime, duration } from '../lib/format'
+import { ago, bytes, dateTime, duration, timeZone } from '../lib/format'
 import { useGames, useSaves } from '../lib/queries'
 import { Seg } from '../lantern/controls'
 import { Button, Confirm, Empty, MenuItem, Modal, Spinner, errorText, useToast } from './ui'
@@ -365,7 +365,7 @@ function SyncDialog({ game, onClose, onDownloaded }: { game: Game; onClose: () =
   const make = async () => {
     setMaking(true)
     try {
-      setMade(await post(`/api/saves/${game.id}/sync`))
+      setMade(await post(`/api/saves/${game.id}/sync`, { tz: timeZone() }))
     } catch (e) {
       toast(errorText(e), 'error')
     } finally {

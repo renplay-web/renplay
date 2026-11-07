@@ -1,17 +1,19 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Clock, LogOut, Settings, User, Users } from 'lucide-react'
+import { ArrowLeftRight, Clock, LogOut, Settings, User, Users } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { post } from '../lib/api'
 import Avatar from './Avatar'
 import Sheet from '../lantern/Sheet'
 import { errorText } from './ui'
+import WhoIsPlaying from './WhoIsPlaying'
 
 /** The avatar in the header: your account, and the way out. */
 export default function AccountMenu() {
   const { data } = useAuth()
   const [open, setOpen] = useState(false)
   const [error, setError] = useState('')
+  const [switching, setSwitching] = useState(false)
   if (!data) return null
   const admin = data.user.role === 'admin'
   return (
@@ -48,6 +50,14 @@ export default function AccountMenu() {
             <>
               <div className="sep" />
               <button
+                onClick={() => {
+                  setOpen(false)
+                  setSwitching(true)
+                }}
+              >
+                <ArrowLeftRight /> Who is playing?
+              </button>
+              <button
                 className="d"
                 onClick={async () => {
                   try {
@@ -69,6 +79,7 @@ export default function AccountMenu() {
           </p>
         )}
       </Sheet>
+      <WhoIsPlaying open={switching} onClose={() => setSwitching(false)} />
     </>
   )
 }

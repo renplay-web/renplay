@@ -95,3 +95,15 @@ export function useFiles(id: string, dir: string) {
     queryFn: () => api<FilesResponse>(`/api/games/${id}/files?dir=${encodeURIComponent(dir)}`),
   })
 }
+
+/** Defaults for everyone, set by an admin: what a person starts with until they choose. */
+export interface Defaults {
+  tagsExclude: string[]
+  lighterBackground: boolean | null
+  textSize: number | null
+  rollback: boolean | null
+  skip: boolean | null
+}
+export function useDefaults() {
+  return useQuery({ queryKey: ['defaults'], queryFn: () => api<Defaults>('/api/defaults'), staleTime: 5 * 60_000, retry: false })
+}

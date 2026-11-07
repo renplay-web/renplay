@@ -6,6 +6,7 @@ import Avatar from '../components/Avatar'
 import AvatarUpload from '../components/AvatarUpload'
 import LinkedSignIns from '../components/LinkedSignIns'
 import AdultLadder from '../components/AdultLadder'
+import WhoIsPlaying from '../components/WhoIsPlaying'
 import { Button, Confirm, Modal, Spinner, accountInput, errorText, useToast } from '../components/ui'
 import { useRoom } from '../lantern/Room'
 import { api, del, post, put } from '../lib/api'
@@ -108,6 +109,11 @@ export default function Account() {
             </div>
           )}
         </AccountSection>
+        {me.auth && (
+          <AccountSection title="Switching on a shared device">
+            <PinSection admin={admin} hasPin={!!me.user.hasPin} />
+          </AccountSection>
+        )}
         <AccountSection title="How you sign in">
           <LinkedSignIns />
         </AccountSection>
@@ -192,6 +198,76 @@ export default function Account() {
       <Confirm open={!!confirm} onClose={() => !busy && setConfirm(null)} title={confirm?.title || ''} confirmLabel="Confirm" busy={busy} onConfirm={async () => { if (confirm && await run(confirm.action, 'Done')) setConfirm(null) }}>
         This takes effect immediately. Your saves are kept.
       </Confirm>
+    </div>
+  )
+}
+
+/** A PIN to switch in on a device someone is already signed in on (Who is playing). */
+function PinSection({ admin, hasPin }: { admin: boolean; hasPin: boolean }) {
+  const qc = useQueryClient()
+  const toast = useToast()
+  const [pin, setPin] = useState('')
+  const [editing, setEditing] = useState(false)
+  const [switching, setSwitching] = useState(false)
+  const save = async (value: string) => {
+    try {
+      await put('/api/me/pin', { pin: value })
+      toast(value ? 'PIN saved' : 'PIN removed', 'success')
+      setPin('')
+      setEditing(false)
+      await qc.invalidateQueries({ queryKey: ['me'] })
+    } catch (e) {
+      toast(errorText(e), 'error')
+    }
+  }
+  return (
+    <div className="stack" style={{ gap: 10 }}>
+      {admin ? (
+        <p className="small muted">Admins switch in with their full sign-in, so an admin account has no PIN.</p>
+      ) : editing || !hasPin ? (
+        <form
+          className="stack"
+          style={{ gap: 8 }}
+          onSubmit={(e) => {
+            e.preventDefault()
+            void save(pin)
+          }}
+        >
+          <p className="small muted">With a PIN you can switch in on a shared device that someone is signed in on, without your password. It works only on browsers you signed in on before. Signing out everywhere or changing your password removes it.</p>
+          <label className="field">
+            <span>PIN, 4 to 8 digits</span>
+            <input className={accountInput} type="password" inputMode="numeric" autoComplete="new-password" pattern="\d{4,8}" maxLength={8} value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))} />
+          </label>
+          <div className="row" style={{ gap: 8 }}>
+            <Button type="submit" size="sm" disabled={pin.length < 4}>
+              Save PIN
+            </Button>
+            {hasPin && (
+              <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>
+                Cancel
+              </Button>
+            )}
+          </div>
+        </form>
+      ) : (
+        <>
+          <p className="small muted">You have a PIN for switching in on a shared device.</p>
+          <div className="row wrap" style={{ gap: 8 }}>
+            <Button size="sm" onClick={() => setEditing(true)}>
+              Change PIN
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => void save('')}>
+              Remove PIN
+            </Button>
+          </div>
+        </>
+      )}
+      <div>
+        <Button size="sm" variant="ghost" onClick={() => setSwitching(true)}>
+          Who is playing?
+        </Button>
+      </div>
+      <WhoIsPlaying open={switching} onClose={() => setSwitching(false)} />
     </div>
   )
 }

@@ -183,6 +183,14 @@ export const ENV_VARS: readonly EnvVar[] = [
     description: 'How much the server logs. `error`: errors only. `warn`: also warnings and requests that failed on the server. `info`: also the start summary, installs, catalog updates, backups, sign-ins, and requests that change something or fail. `debug`: every request and each install as it runs.',
   },
   {
+    name: 'RENPLAY_RECIPES_DIR',
+    group: 'Games and catalog',
+    kind: 'text',
+    fallback: '',
+    shown: 'recipes in the data folder',
+    description: 'Your recipes: a folder of recipe files in the catalog’s format, read as one more catalog. A recipe here takes the place of a catalog recipe with the same id.',
+  },
+  {
     name: 'RENPLAY_SAVE_HISTORY',
     group: 'Images and saves',
     kind: 'number',

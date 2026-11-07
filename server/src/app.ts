@@ -27,6 +27,7 @@ import { createLibraryRouter } from './routes/library.js'
 import { createPlayRouter } from './routes/play.js'
 import { createSavesExportAll, createSavesRouter } from './routes/saves.js'
 import { createSavesImportRouter } from './routes/saves-import.js'
+import { createMetricsRouter } from './routes/metrics.js'
 import { createSystemRouter } from './routes/system.js'
 import { SaveStore } from './saves/store.js'
 import { sha256File } from './util/fsx.js'
@@ -193,6 +194,7 @@ export async function createApp(cfg: Config, opts: { runtimePath?: string; start
   const backups = new SaveBackups(cfg, db)
   if (opts.startJobs !== false) backups.start()
   app.use('/api', createSystemRouter(cfg, db, jobs, engines, builds, purger, version, content, catalog, backups))
+  app.use('/api', createMetricsRouter(cfg, db, jobs, catalog, backups, content, version))
   app.use('/api/content', createContentRouter(cfg, content, catalog))
   app.get('/api/saves-export', (req, res, next) => { void createSavesExportAll(accounts.store(), db, content)(req, res).catch(next) })
   app.use('/api/saves-import', createSavesImportRouter(() => accounts.store(), db, content, catalog))

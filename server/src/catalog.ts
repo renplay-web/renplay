@@ -10,6 +10,8 @@ import { parseJson, type Db, type GameRow, type GameSource, type JobRow } from '
 import type { JobContext } from './jobs.js'
 import { cleanRelPath } from './util/paths.js'
 import { log } from './util/log.js'
+import { catalogHosts, fetchPublic } from './util/net.js'
+import { readLocalFile, readLocalRecipes } from './recipes-local.js'
 
 export interface RecipeArchive {
   name: string
@@ -87,6 +89,8 @@ export interface Recipe {
   releases: RecipeRelease[]
   /** Index URL the recipe came from (for relative URLs). */
   _base?: string
+  /** Its source: the configured catalog address, or 'local' for Your recipes. */
+  _origin?: string
 }
 
 export interface BuildSettings {
@@ -143,6 +147,16 @@ export function normalizeRecipe(g: any): Recipe {
     engine: old ? 'renpy' : g.engine,
     runtime: g.runtime ?? (old ? g.engine : undefined),
     releases: g.releases.map(({ renpy, engine, ...r }: any) => ({ ...r, madeWith: r.madeWith ?? renpy, runtime: r.runtime ?? engine })),
+  }
+}
+
+/** A catalog's recipe never names files in Your recipes (`local:`): only recipes there may. */
+function withoutLocalFiles(g: Recipe): Recipe {
+  const remote = (x: { url?: string }) => typeof x?.url !== 'string' || !x.url.startsWith('local:')
+  return {
+    ...g,
+    art: g.art?.filter(remote),
+    build: g.build?.patches ? { ...g.build, patches: g.build.patches.filter(remote) } : g.build,
   }
 }
 
@@ -334,7 +348,7 @@ export class Catalog {
       }
       try {
         idx ??= await fetchIndex(url)
-        let games: Recipe[] = (idx.games ?? []).filter(valid).map((g) => ({ ...normalizeRecipe(g), _base: from }))
+        let games: Recipe[] = (idx.games ?? []).filter(valid).map((g) => withoutLocalFiles({ ...normalizeRecipe(g), _base: from, _origin: url }))
         let vocab = idx.vocabulary ?? {}
         if (off) {
           const kept = withoutAdult(games, vocab)
@@ -349,6 +363,19 @@ export class Catalog {
       } catch (e) {
         this.errors.push({ text: `${url}: ${(e as Error).message}` })
       }
+    }
+    // Your recipes: read like one more catalog, and a recipe there takes the place of the catalog's.
+    const local = await readLocalRecipes(this.cfg.recipesDir, vocabulary)
+    for (const p of local.problems) this.errors.push({ text: `Your recipes, ${p.file}: ${p.message}`, recipe: p.recipe })
+    let mine = local.games
+    if (off) {
+      const kept = withoutAdult(mine, {})
+      mine = kept.games
+      adult.push(...kept.adult)
+    }
+    if (mine.length) {
+      const ids = new Set(mine.map((g) => g.id))
+      all.splice(0, all.length, ...all.filter((g) => !ids.has(g.id)), ...mine)
     }
     if (all.length || !this.errors.length) {
       this.load(all)
@@ -453,6 +480,21 @@ export class Catalog {
     return { fetchedAt: this.fetchedAt, urls: this.cfg.catalogUrls, errors: this.visibleErrors(), count: this.visibleCount() }
   }
 
+  /**
+   * Each source with what it gave this person: the configured catalogs, then Your recipes. Counts
+   * leave out what the person's level hides.
+   */
+  sources(): Array<{ kind: 'catalog' | 'folder'; location: string; recipes: number; pictures: number; problems: string[] }> {
+    const visible = this.list()
+    const problems = this.visibleErrors()
+    const of = (origin: string) => visible.filter((r) => r._origin === origin)
+    const count = (rs: Recipe[]) => ({ recipes: rs.length, pictures: rs.reduce((n, r) => n + (r.art?.length ?? 0), 0) })
+    return [
+      ...this.cfg.catalogUrls.map((url) => ({ kind: 'catalog' as const, location: url, ...count(of(url)), problems: problems.filter((p) => p.startsWith(url) || p.startsWith(sfwIndexUrl(url) ?? '\0')) })),
+      { kind: 'folder' as const, location: this.cfg.recipesDir, ...count(of('local')), problems: problems.filter((p) => p.startsWith('Your recipes')) },
+    ]
+  }
+
   /** Errors about an adult recipe name it and its art, so only a person at Shown sees them. */
   private visibleErrors(): string[] {
     const shown = this.content.viewerLevel() === 'shown'
@@ -538,10 +580,14 @@ export class Catalog {
     for (const p of recipe.build?.patches ?? []) {
       const rel = cleanRelPath(p.path)
       if (!rel.startsWith('game/')) throw new Error(`Recipe patch outside game/: ${rel}`)
-      const url = new URL(p.url, recipe._base ?? this.cfg.catalogUrls[0]).toString()
-      const res = await fetch(url, { signal: ctx.signal })
-      if (!res.ok) throw new Error(`Recipe patch download failed: ${url} (${res.status})`)
-      const data = Buffer.from(await res.arrayBuffer())
+      let data: Buffer
+      if (p.url.startsWith('local:')) data = await readLocalFile(this.cfg.recipesDir, p.url)
+      else {
+        const url = new URL(p.url, recipe._base ?? this.cfg.catalogUrls[0]).toString()
+        const res = await fetchPublic(url, { signal: ctx.signal, allowHosts: catalogHosts(this.cfg.catalogUrls) })
+        if (!res.ok) throw new Error(`Recipe patch download failed: ${url} (${res.status})`)
+        data = Buffer.from(await res.arrayBuffer())
+      }
       if (createHash('sha256').update(data).digest('hex') !== p.sha256.toLowerCase()) throw new Error(`Recipe patch checksum mismatch: ${rel}`)
       out.set(rel.slice(5), data)
       ctx.log(`Recipe patch ${rel}`)

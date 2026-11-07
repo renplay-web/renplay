@@ -116,7 +116,7 @@ describe('HTTP API', () => {
   it('stores finished state and measured play time without changing saves', async () => {
     app.db.insertGame({ id: 'progress-game', title: 'Progress', save_dir: 'Progress-123' })
     const path = '/api/games/progress-game'
-    expect((app.db.raw.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(16)
+    expect((app.db.raw.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(18)
     expect((await request(app.app).get(path)).body.game).toMatchObject({ playTime: 0, finishedAt: null, latestSave: null })
     for (const on of [undefined, 'true', 1]) await request(app.app).put(`${path}/finished`).send({ on }).expect(400)
     await request(app.app).put('/api/games/missing/finished').send({ on: true }).expect(404)

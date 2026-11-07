@@ -3,8 +3,17 @@ import { deviceLevel } from './device'
 export type GameState = 'ongoing' | 'completed' | 'on-hold' | 'abandoned'
 export type Vocabulary = Record<string, { label: string; group: 'play' | 'story' | 'art' | 'protagonist' | 'content' }>
 
+/** A catalog source and what it gave the person asking. */
+export interface CatalogSource {
+  kind: 'catalog' | 'folder'
+  location: string
+  recipes: number
+  pictures: number
+  problems: string[]
+}
+
 export interface CatalogResponse {
-  status: { fetchedAt: number; urls: string[]; errors: string[]; count: number }
+  status: { fetchedAt: number; urls: string[]; errors: string[]; count: number; sources?: CatalogSource[] }
   vocabulary: Vocabulary
   games: Recipe[]
 }
@@ -138,7 +147,8 @@ export interface Job {
   progress: number
   message: string
   error: string | null
-  params: { source?: { kind: string; path?: string }; game?: string; path?: string } | null
+  /** `by`: who started it, for installs since 4.0.2. */
+  params: { source?: { kind: string; path?: string }; game?: string; path?: string; by?: number } | null
   result: any
   createdAt: string
   startedAt: string | null
@@ -221,12 +231,18 @@ export interface Recipe {
   engine?: string
   releases: RecipeRelease[]
   local: { id: string; status: string; version: string; detectedVersion: string } | null
+  /** From the recipes folder on this server, not the catalog. */
+  fromYourRecipes?: boolean
 }
 
 export interface SystemInfo {
   version: string
   /** Ren'Py Sync codes: off until an admin turns them on. */
-  sync?: { on: boolean; server: string }
+  sync?: { on: boolean; server: string; chosen?: boolean }
+  /** For each variable Settings shows: set on the server, or the default. */
+  setBy?: Record<string, 'server' | 'default'>
+  /** An admin chose whether downloads are kept (else the default). */
+  keepDownloadsChosen?: boolean
   engines: {
     installed: Array<{ version: string; bytes: number; usedBy: string[] }>
     available: Array<{ version: string; renpy: string; bytes: number }>

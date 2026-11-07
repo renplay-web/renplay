@@ -143,7 +143,9 @@ export function createSavesRouter(store: SaveStore, db: Db, content: ContentMode
     // The version the device last saw, for the conflict rule. Older runtimes send none.
     const rawBase = req.header('x-base')
     const base = rawBase !== undefined && /^\d+$/.test(rawBase) ? Number(rawBase) : undefined
-    const f = await store.write(dir, name, body, { mtimeMs: mtime, reason: 'game', base })
+    const rawUnanswered = req.header('x-unanswered')
+    const unanswered = rawUnanswered && /^[0-9a-f]{1,8}:\d{1,9}$/.test(rawUnanswered) ? rawUnanswered : undefined
+    const f = await store.write(dir, name, body, { mtimeMs: mtime, reason: 'game', base, unanswered })
     res.json({ ok: true, size: f.size, mtime: f.mtimeMs, sha1: sha1(body), ...(f.conflict ? { conflict: f.conflict } : {}) })
   })
 
@@ -242,7 +244,7 @@ export function createSavesRouter(store: SaveStore, db: Db, content: ContentMode
 
   /** Sends this person's saves of the game to Ren'Py's sync server and returns the code. */
   router.post('/:id/sync', async (req, res) => {
-    res.json(await uploadSync(syncServer, store, syncGame(req)))
+    res.json(await uploadSync(syncServer, store, syncGame(req), typeof req.body?.tz === 'string' ? req.body.tz : undefined))
   })
 
   /** Fetches the saves for a code made on another device. */

@@ -132,7 +132,7 @@ async function install(ctx: JobContext<ImportParams>, deps: ImportDeps): Promise
       if (other) throw new Error(`This is a ${other.label} game. ${other.reason ?? ''}`.trim())
       throw new Error('No game found in the archive (no Ren’Py game/ folder with scripts, no page or game pack)')
     }
-    if (layout.kind === 'web') throw new Error('This is a web build. Use the game’s PC download; renplay builds the web version itself.')
+    if (layout.kind === 'web') throw new Error('This is a web build. Use the game’s PC download. Renplay builds the web version itself.')
 
     // 4. Engine, from the recipe or the game's own Ren'Py version.
     const gameRenpy = await renpyVersionOf((p) => src!.entries.find((e) => e.path === layout.root + p), pythonOf(src.entries.map((e) => e.path), layout.root))

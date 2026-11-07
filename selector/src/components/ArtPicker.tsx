@@ -19,6 +19,10 @@ interface Candidate {
   source: string
   credit: ArtCredit
   upload: boolean
+  /** Uploaded by this person, and so theirs to delete. */
+  ownUpload: boolean
+  /** Uploaded for everyone, which an admin may delete. */
+  sharedUpload: boolean
   preview: ArtFormat | null
 }
 
@@ -152,6 +156,12 @@ export default function ArtPicker({ game, open, onClose, initialKind = 'grid', s
     })
 
   const candidates = list.data ?? []
+  const uploads = candidates.filter((c) => c.upload)
+  const uploadName = (c: Candidate) => (uploads.length > 1 ? `Your upload ${uploads.indexOf(c) + 1}` : 'Your upload')
+  // Each upload once, at the scope it was made for: one's own, or for everyone when an admin.
+  const removable = uploads.filter((c) => c.ownUpload || (admin && c.sharedUpload))
+  const remove = (c: Candidate) =>
+    run(() => del(`/api/games/${game.id}/art/uploads/${c.id}?kind=${kind}&scope=${c.ownUpload ? 'me' : 'everyone'}`))
   const current = candidates.find((c) => c.current) ?? null
   const shown = candidates.find((c) => c.id === previewing) ?? current
 
@@ -219,7 +229,7 @@ export default function ArtPicker({ game, open, onClose, initialKind = 'grid', s
                     <Placement game={game} kind={kind} format={c.preview} ring={c.current || previewing === c.id} />
                   </div>
                   <div className="cl">
-                    {c.upload ? 'Your upload' : c.source === 'sgdb' ? 'SteamGridDB' : c.source === 'steam' ? 'Steam' : c.source === 'itch' ? 'itch.io' : c.source === 'renplay' ? 'Renplay' : 'The developer'}
+                    {c.upload ? uploadName(c) : c.source === 'sgdb' ? 'SteamGridDB' : c.source === 'steam' ? 'Steam' : c.source === 'itch' ? 'itch.io' : c.source === 'renplay' ? 'Renplay' : 'The developer'}
                     {c.everyone && <span className="pill">For everyone</span>}
                     {c.mine && <span className="pill">Your choice</span>}
                     {!c.inShape && kind !== 'logo' && (
@@ -232,6 +242,29 @@ export default function ArtPicker({ game, open, onClose, initialKind = 'grid', s
                 </button>
               ))}
             </div>
+          )}
+
+          {removable.length > 0 && (
+            <>
+              <div className="grp-h">Your uploads</div>
+              <div className="list tight">
+                {removable.map((c) => (
+                  <div key={c.id} className="row between small" style={{ minHeight: 'var(--hit)', gap: 12 }}>
+                    <span>
+                      {uploadName(c)}
+                      <span className="muted">
+                        {' '}
+                        · {c.width} × {c.height}
+                        {!c.ownUpload ? ' · For everyone' : ''}
+                      </span>
+                    </span>
+                    <Pill variant="q" size="sm" onClick={() => !busy && void remove(c)} aria-disabled={busy}>
+                      Delete
+                    </Pill>
+                  </div>
+                ))}
+              </div>
+            </>
           )}
 
           <div className="grp-h">Your own picture</div>

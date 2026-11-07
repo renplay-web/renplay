@@ -121,6 +121,17 @@ describe('Sync codes', () => {
     expect(entries.get('save_directory')!.toString()).toBe('Story-1')
   })
 
+  it('writes zip times as the clock time of the person’s time zone', async () => {
+    const { code } = (await request(app.app).post('/api/saves/story/sync').send({ tz: 'Asia/Tokyo' }).expect(200)).body
+    const { key, hash } = keyAndHash(code, 'Story-1')
+    const times = new Map<string, number>()
+    await readZipEntries(secretboxDecrypt(kept.get(`/api/sync/v1/${hash}`)!, key), () => true, 64 << 20, times)
+    const saved = (await app.saves.stat('Story-1', '1-1-LT1.save'))!.mtimeMs
+    const tokyo = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(saved)
+    const written = new Date(times.get('1-1-LT1.save')!)
+    expect(`${String(written.getHours()).padStart(2, '0')}:${String(written.getMinutes()).padStart(2, '0')}`).toBe(tokyo)
+  })
+
   it('brings saves from a code made elsewhere: newer ones take the slot, the persistent data waits in the sync folder', async () => {
     const now = Date.now()
     // A save's own time decides, not the zip's (the other device's local time): here the zip times

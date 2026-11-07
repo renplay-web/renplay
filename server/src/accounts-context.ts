@@ -19,6 +19,11 @@ export interface User {
   prefs: string
   avatar: string
   avatar_uploaded: number
+  /** The PIN for switching to this person on a signed-in device (scrypt), or empty. Never sent. */
+  pin_hash: string
+  pin_failures: number
+  /** Until when switching to this person is locked after five wrong PINs (ms), or 0. */
+  pin_locked_until: number
 }
 export interface Viewer {
   user: User

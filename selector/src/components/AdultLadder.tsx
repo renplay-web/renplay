@@ -28,7 +28,8 @@ export function LevelSeg({ label, value, max = 'shown', onChange, busy }: { labe
 
 function LadderRow({ title, sub, source, fixed, children }: { title: string; sub?: string; source?: React.ReactNode; fixed?: boolean; children: React.ReactNode }) {
   return (
-    <div className={`lrow ${fixed ? 'fixed' : ''}`.trim()}>
+    // `locked`, not `fixed`: Tailwind's fixed is position: fixed.
+    <div className={`lrow ${fixed ? 'locked' : ''}`.trim()}>
       <div className="l">
         <div className="t">{title}</div>
         {sub && <div className="d">{sub}</div>}

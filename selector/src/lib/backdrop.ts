@@ -8,7 +8,17 @@ const KEY = 'renplay:lighter-background'
 const EVENT = 'renplay:lighter-background'
 const REDUCED = '(prefers-reduced-motion: reduce)'
 
+/** The admin's default for everyone (Settings, Defaults for everyone), when one is set. */
+let adminDefault: boolean | null = null
+export function setAdminLighterBackground(v: boolean | null): void {
+  if (v === adminDefault) return
+  adminDefault = v
+  dispatchEvent(new Event(EVENT))
+}
+
+/** What applies until this browser chooses: the admin's default, else the device's settings. */
 function followsDevice(): boolean {
+  if (adminDefault !== null) return adminDefault
   const reduced = typeof matchMedia !== 'undefined' && matchMedia(REDUCED).matches
   const saveData = !!(navigator as Navigator & { connection?: { saveData?: boolean } }).connection?.saveData
   return reduced || saveData
@@ -46,11 +56,11 @@ function subscribe(onChange: () => void): () => void {
 
 const snapshot = () => {
   const c = choice()
-  return `${c ?? followsDevice()}|${c === null ? 'device' : 'chosen'}`
+  return `${c ?? followsDevice()}|${c !== null ? 'chosen' : adminDefault !== null ? 'admin' : 'device'}`
 }
 
-/** Whether the background is lighter here, and whether this device chose it. */
-export function useLighterBackground(): { on: boolean; chosen: boolean } {
+/** Whether the background is lighter here, and where that comes from. */
+export function useLighterBackground(): { on: boolean; chosen: boolean; from: 'chosen' | 'admin' | 'device' } {
   const [on, from] = useSyncExternalStore(subscribe, snapshot).split('|')
-  return { on: on === 'true', chosen: from === 'chosen' }
+  return { on: on === 'true', chosen: from === 'chosen', from: from as 'chosen' | 'admin' | 'device' }
 }

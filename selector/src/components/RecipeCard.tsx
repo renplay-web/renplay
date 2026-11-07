@@ -29,6 +29,7 @@ export default function RecipeCard({ recipe: r }: { recipe: Recipe }) {
           </p>
           <div className="row wrap" style={{ gap: 6, marginTop: 8 }}>
             {r.free === true && <TagPill tone="green">Free</TagPill>}
+            {r.fromYourRecipes && <TagPill>From your recipes</TagPill>}
             <BetaBadge engine={r.engine} />
             {broken && <TagPill tone="red">Does not work</TagPill>}
             {r.local && (
